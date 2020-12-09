@@ -127,6 +127,7 @@ mutable struct preallocated_data{T<:Real}
     s_u_αΔ_aff       :: Vector{T}
     rxs_l            :: Vector{T}
     rxs_u            :: Vector{T}
+    r                :: Vector{T}
 end
 
 convert(::Type{preallocated_data{T}}, pad) where {T<:Real} = preallocated_data(convert(Array{T}, pad.Δ_aff),
@@ -138,7 +139,8 @@ convert(::Type{preallocated_data{T}}, pad) where {T<:Real} = preallocated_data(c
                                                                                convert(Array{T}, pad.s_l_αΔ_aff),
                                                                                convert(Array{T}, pad.s_u_αΔ_aff),
                                                                                convert(Array{T}, pad.rxs_l),
-                                                                               convert(Array{T}, pad.rxs_u)
+                                                                               convert(Array{T}, pad.rxs_u),
+                                                                               convert(Array{T}, pad.r)
                                                                                )
 
 mutable struct stop_crit

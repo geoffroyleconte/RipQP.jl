@@ -72,7 +72,8 @@ function init_params(FloatData_T0 :: QM_FloatData{T0}, IntData :: QM_IntData,
                             zeros(T, IntData.n_low), # s_l_αΔ_aff
                             zeros(T, IntData.n_upp), # s_u_αΔ_aff
                             zeros(T, IntData.n_low), # rxs_l
-                            zeros(T, IntData.n_upp) #rxs_u
+                            zeros(T, IntData.n_upp), #rxs_u
+                            zeros(T, IntData.n_cols+IntData.n_rows) # r
                             )
 
     pt, itd, pad.Δ_xλ = @views starting_points(FloatData_T, IntData, itd, pad.Δ_xλ)
@@ -142,7 +143,8 @@ function init_params_mono(FloatData_T :: QM_FloatData{T}, IntData :: QM_IntData,
                             zeros(T, IntData.n_low), # s_l_αΔ_aff
                             zeros(T, IntData.n_upp), # s_u_αΔ_aff
                             zeros(T, IntData.n_low), # rxs_l
-                            zeros(T, IntData.n_upp) #rxs_u
+                            zeros(T, IntData.n_upp), #rxs_u
+                            zeros(T, IntData.n_cols+IntData.n_rows) # r
                             )
 
     pt, itd, pad.Δ_xλ = @views starting_points(FloatData_T, IntData, itd, pad.Δ_xλ)

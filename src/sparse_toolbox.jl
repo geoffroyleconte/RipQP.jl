@@ -103,3 +103,44 @@ function nb_corrector_steps(J :: SparseMatrixCSC{T,Int}, n_cols :: Int) where {T
     end
     return K
 end
+
+# compute J_fact * x
+function ldl_ltmul!(n, x::AbstractVector, Lp, Li, Lx)
+    for j=1:n
+        xj = x[j]
+        for p = Lp[j] : (Lp[j+1] - 1)
+            xj += Lx[p] * x[Li[p]]
+        end
+        x[j] = xj
+    end
+    return x
+end
+
+function ldl_dmul!(n, x::AbstractVector, D)
+    for j = 1:n
+        x[j] *= D[j]
+    end
+    return x
+end
+
+function ldl_lmul!(n, x::AbstractVector, Lp, Li, Lx)
+    for j = n:-1:1
+        xj = x[j]
+        for p = Lp[j] : (Lp[j+1] - 1)
+            x[Li[p]] += Lx[p] * xj
+        end
+    end
+    return x
+end
+
+function ldl_mul!(n, x::AbstractVector, Lp, Li, Lx, D, P)
+    @views y = x[P]
+    ldl_ltmul!(n, y, Lp, Li, Lx)
+    ldl_dmul!(n, y, D)
+    ldl_lmul!(n, y, Lp, Li, Lx)
+  return x
+end
+
+function ldl_rmul!(LDL::LDLFactorizations.LDLFactorization{T,Ti,Tn,Tp}, x::AbstractVector{T}) where {T<:Real,Ti<:Integer,Tn<:Integer,Tp<:Integer}
+    return ldl_mul!(LDL.n, x, LDL.Lp, LDL.Li, LDL.Lx, LDL.d, LDL.P)
+end

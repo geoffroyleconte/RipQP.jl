@@ -40,6 +40,12 @@ function compute_μ(x_m_lvar, uvar_m_x, s_l, s_u, nb_low, nb_upp)
     return (s_l' * x_m_lvar + s_u' * uvar_m_x) / (nb_low + nb_upp)
 end
 
+function refinement!(J_fact, Δ_xλ, r)
+    r = ldiv!(J_fact, r)
+    Δ_xλ -= r
+    return Δ_xλ
+end
+
 function solve_augmented_system_aff!(J_fact, Δ_aff, Δ_xλ, rc, rb, x_m_lvar, uvar_m_x,
                                      s_l, s_u, ilow, iupp,  n_cols, n_rows, n_low)
 
@@ -55,8 +61,36 @@ function solve_augmented_system_aff!(J_fact, Δ_aff, Δ_xλ, rc, rb, x_m_lvar, u
     return Δ_aff
 end
 
-function solve_augmented_system_cc!(J_fact, Δ_cc, Δ_xλ ,Δ_aff, σ, μ, x_m_lvar, uvar_m_x,
-                                    rxs_l, rxs_u, s_l, s_u, ilow, iupp, n_cols, n_rows, n_low)
+function solve_augmented_system_aff_ir!(J_fact, Δ_aff, Δ_xλ, rc, rb, x_m_lvar, uvar_m_x,
+                                        s_l, s_u, ilow, iupp,  n_cols, n_rows, n_low, r; tol_ir=1e-16)
+
+    Δ_xλ[1:n_cols] .= .-rc
+    Δ_xλ[n_cols+1:end] .= .-rb
+    Δ_xλ[ilow] += @views s_l[ilow]
+    Δ_xλ[iupp] -= @views s_u[iupp]
+
+    Δ_aff[1:n_cols+n_rows] = Δ_xλ
+    Δ_xλ = ldiv!(J_fact, Δ_xλ)
+    r .= Δ_xλ
+    r = ldl_rmul!(J_fact, r)
+    r .-= view(Δ_aff, 1:n_cols+n_rows)
+    # println(norm(r, Inf))
+    if norm(r, Inf) > tol_ir
+        Δ_xλ = refinement!(J_fact, Δ_xλ, r)
+        r .= Δ_xλ
+        r = ldl_rmul!(J_fact, r)
+        r .-= view(Δ_aff, 1:n_cols+n_rows)
+        # println(norm(r, Inf))
+    end
+
+    Δ_aff[1:n_cols+n_rows] = Δ_xλ
+    Δ_aff[n_cols+n_rows+1:n_cols+n_rows+n_low] .= @views .-s_l[ilow] .- s_l[ilow].*Δ_xλ[1:n_cols][ilow]./x_m_lvar
+    Δ_aff[n_cols+n_rows+n_low+1:end] .= @views .-s_u[iupp] .+ s_u[iupp].*Δ_xλ[1:n_cols][iupp]./uvar_m_x
+    return Δ_aff
+end
+
+function solve_augmented_system_cc!(J_fact, Δ_cc, Δ_xλ, Δ_aff, σ, μ, x_m_lvar, uvar_m_x, rxs_l, rxs_u, s_l, s_u,
+                                    ilow, iupp, n_cols, n_rows, n_low)
 
     rxs_l .= @views (-σ*μ .+ Δ_aff[1:n_cols][ilow].*Δ_aff[n_rows+n_cols+1: n_rows+n_cols+n_low])
     rxs_u .= @views σ*μ .+ Δ_aff[1:n_cols][iupp].*Δ_aff[n_rows+n_cols+n_low+1: end]
@@ -65,6 +99,35 @@ function solve_augmented_system_cc!(J_fact, Δ_cc, Δ_xλ ,Δ_aff, σ, μ, x_m_l
     Δ_xλ[iupp] .+= rxs_u./uvar_m_x
 
     Δ_xλ = ldiv!(J_fact, Δ_xλ)
+    Δ_cc[1:n_cols+n_rows] = Δ_xλ
+    Δ_cc[n_cols+n_rows+1:n_cols+n_rows+n_low] .= @views .-(rxs_l.+s_l[ilow].*Δ_xλ[1:n_cols][ilow])./x_m_lvar
+    Δ_cc[n_cols+n_rows+n_low+1:end] .= @views (rxs_u.+s_u[iupp].*Δ_xλ[1:n_cols][iupp])./uvar_m_x
+    return Δ_cc
+end
+
+function solve_augmented_system_cc_ir!(J_fact, Δ_cc, Δ_xλ, Δ_aff, σ, μ, x_m_lvar, uvar_m_x, rxs_l, rxs_u, s_l, s_u,
+                                       ilow, iupp, n_cols, n_rows, n_low, r; tol_ir=1e-16) # iterative refinement
+
+    rxs_l .= @views (-σ*μ .+ Δ_aff[1:n_cols][ilow].*Δ_aff[n_rows+n_cols+1: n_rows+n_cols+n_low])
+    rxs_u .= @views σ*μ .+ Δ_aff[1:n_cols][iupp].*Δ_aff[n_rows+n_cols+n_low+1: end]
+    Δ_xλ .= zero(eltype(Δ_xλ))
+    Δ_xλ[ilow] .+= rxs_l./x_m_lvar
+    Δ_xλ[iupp] .+= rxs_u./uvar_m_x
+
+    Δ_cc[1:n_cols+n_rows] = Δ_xλ
+    Δ_xλ = ldiv!(J_fact, Δ_xλ)
+    r .= Δ_xλ
+    r = ldl_rmul!(J_fact, r)
+    r .-= view(Δ_cc, 1:n_cols+n_rows)
+    # println(norm(r, Inf))
+    if norm(r, Inf) > tol_ir
+        Δ_xλ = refinement!(J_fact, Δ_xλ, r)
+        r .= Δ_xλ
+        r = ldl_rmul!(J_fact, r)
+        r .-= view(Δ_cc, 1:n_cols+n_rows)
+        # println(norm(r, Inf))
+    end
+
     Δ_cc[1:n_cols+n_rows] = Δ_xλ
     Δ_cc[n_cols+n_rows+1:n_cols+n_rows+n_low] .= @views .-(rxs_l.+s_l[ilow].*Δ_xλ[1:n_cols][ilow])./x_m_lvar
     Δ_cc[n_cols+n_rows+n_low+1:end] .= @views (rxs_u.+s_u[iupp].*Δ_xλ[1:n_cols][iupp])./uvar_m_x
@@ -219,10 +282,10 @@ function iter_mehrotraPC!(pt :: point{T}, itd :: iter_data{T}, FloatData :: QM_F
         end
         ########################################################################
 
-        pad.Δ_aff = solve_augmented_system_aff!(itd.J_fact, pad.Δ_aff, pad.Δ_xλ, res.rc, res.rb,
+        pad.Δ_aff = solve_augmented_system_aff_ir!(itd.J_fact, pad.Δ_aff, pad.Δ_xλ, res.rc, res.rb,
                                                 itd.x_m_lvar, itd.uvar_m_x, pt.s_l, pt.s_u,
                                                 IntData.ilow, IntData.iupp, IntData.n_cols, IntData.n_rows,
-                                                IntData.n_low)
+                                                IntData.n_low, pad.r)
         α_aff_pri = @views compute_α_primal(pt.x, pad.Δ_aff[1:IntData.n_cols], FloatData.lvar, FloatData.uvar)
         α_aff_dual_l = @views compute_α_dual(pt.s_l[IntData.ilow],
                                              pad.Δ_aff[IntData.n_rows+IntData.n_cols+1:IntData.n_rows+IntData.n_cols+IntData.n_low])
@@ -241,10 +304,10 @@ function iter_mehrotraPC!(pt :: point{T}, itd :: iter_data{T}, FloatData :: QM_F
         σ = (μ_aff / itd.μ)^3
 
         # corrector and centering step
-        pad.Δ_cc = solve_augmented_system_cc!(itd.J_fact, pad.Δ_cc, pad.Δ_xλ , pad.Δ_aff, σ, itd.μ,
+        pad.Δ_cc = solve_augmented_system_cc_ir!(itd.J_fact, pad.Δ_cc, pad.Δ_xλ , pad.Δ_aff, σ, itd.μ,
                                               itd.x_m_lvar, itd.uvar_m_x, pad.rxs_l, pad.rxs_u, pt.s_l, pt.s_u,
                                               IntData.ilow, IntData.iupp, IntData.n_cols, IntData.n_rows,
-                                              IntData.n_low)
+                                              IntData.n_low, pad.r)
         pad.Δ .= pad.Δ_aff .+ pad.Δ_cc # final direction
         α_pri = @views compute_α_primal(pt.x, pad.Δ[1:IntData.n_cols], FloatData.lvar, FloatData.uvar)
         α_dual_l = @views compute_α_dual(pt.s_l[IntData.ilow],
