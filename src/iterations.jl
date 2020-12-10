@@ -61,7 +61,7 @@ function solve_augmented_system_aff!(J_fact, Δ_aff, Δ_xλ, rc, rb, x_m_lvar, u
     return Δ_aff
 end
 
-function solve_augmented_system_aff_ir!(J_fact, Δ_aff, Δ_xλ, rc, rb, x_m_lvar, uvar_m_x,
+function solve_augmented_system_aff_ir!(LDL, J_fact, Δ_aff, Δ_xλ, rc, rb, x_m_lvar, uvar_m_x,
                                         s_l, s_u, ilow, iupp,  n_cols, n_rows, n_low, r; tol_ir=1e-16)
 
     Δ_xλ[1:n_cols] .= .-rc
@@ -74,12 +74,17 @@ function solve_augmented_system_aff_ir!(J_fact, Δ_aff, Δ_xλ, rc, rb, x_m_lvar
     r .= Δ_xλ
     r = ldl_rmul!(J_fact, r)
     r .-= view(Δ_aff, 1:n_cols+n_rows)
-    # println(norm(r, Inf))
+    r2 = Symmetric(LDL, :U) * Δ_xλ - view(Δ_aff, 1:n_cols+n_rows)
+    println("r = ", norm(r, Inf), "   r2 = ", norm(r2, Inf), "     r-r2 = ", norm(r-r2, Inf))
     if norm(r, Inf) > tol_ir
+        Δ_xλ2 = copy(Δ_xλ)
+        Δ_xλ2 = refinement!(J_fact, Δ_xλ2, r2)
+        r2 = LDL * Δ_xλ2 - view(Δ_aff, 1:n_cols+n_rows)
         Δ_xλ = refinement!(J_fact, Δ_xλ, r)
         r .= Δ_xλ
         r = ldl_rmul!(J_fact, r)
         r .-= view(Δ_aff, 1:n_cols+n_rows)
+        println("r = ", norm(r, Inf), "   r2 = ", norm(r2, Inf))
         # println(norm(r, Inf))
     end
 
@@ -281,8 +286,17 @@ function iter_mehrotraPC!(pt :: point{T}, itd :: iter_data{T}, FloatData :: QM_F
             break
         end
         ########################################################################
-
-        pad.Δ_aff = solve_augmented_system_aff_ir!(itd.J_fact, pad.Δ_aff, pad.Δ_xλ, res.rc, res.rb,
+        L = itd.J_fact.L + I
+        # D = itd.J_fact.D
+        # LDL = spzeros(T, IntData.n_rows+IntData.n_cols, IntData.n_rows+IntData.n_cols)
+        # LDL = copy(L)
+        # LDL[diagind(LDL)] .= one(T)
+        # LDL = rmul!(LDL, D)
+        # LDL *= L'
+        # L = UnitLowerTriangular(itd.J_fact.L)
+        LDL = L*itd.J_fact.D*(L')
+        permute!(LDL, itd.J_fact.pinv, itd.J_fact.pinv)
+        pad.Δ_aff = solve_augmented_system_aff_ir!(LDL, itd.J_fact, pad.Δ_aff, pad.Δ_xλ, res.rc, res.rb,
                                                 itd.x_m_lvar, itd.uvar_m_x, pt.s_l, pt.s_u,
                                                 IntData.ilow, IntData.iupp, IntData.n_cols, IntData.n_rows,
                                                 IntData.n_low, pad.r)
