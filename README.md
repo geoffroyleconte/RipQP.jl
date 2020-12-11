@@ -55,9 +55,12 @@ mutable struct mLCPModel{T<:Real}
 end
 ```
 
-|s_l - s_u |  = |M11   M12| |x| + |q1|\
+<pre>
+|s_l - s_u |  = |M11   M12| |x| + |q1|
 |    0     |    |M21   M22| |λ|   |q2|
+</pre>
 
 ```julia
+mLCP = mLCPModel(q1, q2, M11, M12, M21, M22, lvar, uvar)
 stats = ripmLCP(mLCP)
 ```
