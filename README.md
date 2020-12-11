@@ -32,3 +32,32 @@ To use the multi precision mode (default to :mono):
 ```julia
 stats = ripqp(qm, mode=:multi)
 ```
+
+solve mLCP problems:
+
+```julia
+mutable struct mLCPModel{T<:Real}
+  q1      :: Vector{T}          # c
+  q2      :: Vector{T}             # -b
+  M11     :: SparseMatrixCSC{T,Int}
+  M12     :: SparseMatrixCSC{T,Int}
+  M21     :: SparseMatrixCSC{T,Int} #A
+  M22     :: SparseMatrixCSC{T,Int}
+  lvar    :: Vector{T}
+  uvar    :: Vector{T}
+  ilow    :: Vector{Int}
+  iupp    :: Vector{Int}
+  irng    :: Vector{Int}
+  n_rows  :: Int
+  n_cols  :: Int
+  n_low   :: Int
+  n_upp   :: Int
+end
+```
+
+|s_l - s_u |  = |M11   M12| |x| + |q1|\
+|    0     |    |M21   M22| |λ|   |q2|
+
+```julia
+stats = ripmLCP(mLCP)
+```

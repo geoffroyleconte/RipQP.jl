@@ -155,3 +155,90 @@ mutable struct counters
     km       :: Int # iter relative to precision: if k+=1 and T==Float128, km +=16  (km+=4 if T==Float64 and km+=1 if T==Float32)
     K        :: Int # maximum corrector steps
 end
+
+# [s    =  [M11  M21  [x    + [q1
+#  0]       M21  M22]  λ]      q2]
+
+mutable struct mLCPModel{T<:Real}
+  q1      :: Vector{T}          # c
+  q2      :: Vector{T}             # -b
+  M11     :: SparseMatrixCSC{T,Int}
+  M12     :: SparseMatrixCSC{T,Int}
+  M21     :: SparseMatrixCSC{T,Int} #A
+  M22     :: SparseMatrixCSC{T,Int}
+  lvar    :: Vector{T}
+  uvar    :: Vector{T}
+  ilow    :: Vector{Int}
+  iupp    :: Vector{Int}
+  irng    :: Vector{Int}
+  n_rows  :: Int
+  n_cols  :: Int
+  n_low   :: Int
+  n_upp   :: Int
+end
+
+function mLCPModel(q1:: Vector{T}, q2:: Vector{T}, M11 :: SparseMatrixCSC{T,Int}, M12 :: SparseMatrixCSC{T,Int},
+                   M21 :: SparseMatrixCSC{T,Int}, M22 :: SparseMatrixCSC{T,Int},
+                   lvar :: Vector{T}, uvar :: Vector{T}) where {T<:Real}
+
+    ilow, iupp, irng = Int[], Int[], Int[]
+    n_rows, n_cols = length(q2), length(q1)
+    for i=1:n_cols
+        if lvar[i] != T(-Inf)
+            push!(ilow, i)
+            if uvar[i] != T(Inf)
+                push!(irng, i)
+                push!(iupp, i)
+            end
+        elseif uvar[i] != T(Inf)
+            push!(iupp, i)
+        end
+    end
+    n_low, n_upp = length(ilow), length(iupp)
+    return mLCPModel(q1, q2, M11, M12, M21, M22, lvar, uvar, ilow, iupp, irng, n_rows, n_cols, n_low, n_upp)
+end
+
+mutable struct tolerances_mLCP{T<:Real}
+    r1     :: T
+    r2     :: T
+    tol_r1 :: T
+    tol_r2 :: T
+    μ      :: T
+    Δx     :: T
+end
+
+mutable struct residuals_mLCP{T<:Real}
+    r1      :: Vector{T}
+    r2      :: Vector{T}
+    r1Norm  :: T
+    r2Norm  :: T
+    n_Δx    :: T
+end
+
+mutable struct iter_data_mLCP{T<:Real}
+    tmp_diag    :: Vector{T}
+    diag_M      :: SparseVector{T}
+    J_augm      :: SparseMatrixCSC{T,Int}
+    J_fact      :: SuiteSparse.UMFPACK.UmfpackLU{T,Int}
+    J_P         :: Vector{Int}
+    diagind_J   :: StepRange{Int, Int}
+    x_m_lvar    :: Vector{T}
+    uvar_m_x    :: Vector{T}
+    M11x        :: Vector{T}
+    M12λ        :: Vector{T}
+    M21x        :: Vector{T}
+    M22λ        :: Vector{T}
+    μ           :: T
+end
+
+mutable struct stats_mLCP{T<:Real}
+    status    :: Symbol
+    x         :: Vector{T}
+    λ         :: Vector{T}
+    s_l       :: Vector{T}
+    s_u       :: Vector{T}
+    r1Norm    :: T
+    r2Norm    :: T
+    iter      :: Int
+    time      :: Real
+end

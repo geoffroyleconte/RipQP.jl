@@ -1,13 +1,14 @@
 module RipQP
 
-using LinearAlgebra, Quadmath, SparseArrays, Statistics
+using LinearAlgebra, Quadmath, SparseArrays, Statistics, SuiteSparse
 
 using LDLFactorizations, NLPModels, QuadraticModels, SolverTools
 
-export ripqp
+export ripqp, ripmLCP, mLCPModel
 
 include("types_definition.jl")
 include("types_toolbox.jl")
+include("mLCP_utils.jl")
 include("starting_points.jl")
 include("scaling.jl")
 include("sparse_toolbox.jl")
@@ -151,6 +152,43 @@ function ripqp(QM0 :: AbstractNLPModel; mode :: Symbol = :mono, regul :: Symbol 
                                   elapsed_time = elapsed_time,
                                   solver_specific = Dict(:absolute_iter_cnt=>cnts.k))
     return stats
+end
+
+function ripmLCP(mLCP :: mLCPModel{T}; max_iter :: Int = 200, K :: Int = 0, ϵ_pdd :: Real = 1e-8, ϵ_r1 :: Real = 1e-6,
+                ϵ_r2 :: Real = 1e-6, ϵ_Δx :: Real = 1e-16, ϵ_μ :: Real = 1e-9, max_time :: Real = 1200.,
+                display :: Bool = true ) where T
+
+    start_time = time()
+    elapsed_time = 0.0
+    ϵ = tolerances_mLCP(T(ϵ_r1), T(ϵ_r2), one(T), one(T), T(ϵ_μ), T(ϵ_Δx))
+    regu, itd, ϵ, pad, pt, res, sc = init_params_mLCP(mLCP, ϵ)
+
+    Δt = time() - start_time
+    sc.tired = Δt > max_time
+    cnts = counters(zero(Int), zero(Int), 0, 0, K==-1 ? nb_corrector_steps(itd.J_augm, IntData.n_cols) : K)
+    # display
+    if display == true
+        @info log_header([:k, :r1Norm, :r2Norm, :n_Δx, :α_pri, :α_du, :μ, :ρ, :δ],
+        [Int, T, T, T, T, T, T, T, T],
+        hdr_override=Dict(:k => "iter", :r1Norm => "‖r1‖", :r2Norm => "‖r2‖",
+        :n_Δx => "‖Δx‖"))
+        @info log_row(Any[cnts.k, res.r1Norm, res.r2Norm, res.n_Δx, zero(T), zero(T), itd.μ, regu.ρ, regu.δ])
+    end
+
+    pt, res, itd, Δt, sc, cnts, regu = iter_mLCP!(pt, itd, mLCP, res, sc, Δt, regu, pad,
+                                                  max_iter, ϵ, start_time, max_time, cnts, T, display)
+    elapsed_time = time() - start_time
+    if cnts.k>= max_iter
+      status = :max_iter
+    elseif sc.tired
+      status = :max_time
+    elseif sc.optimal
+      status = :acceptable
+    else
+      status = :unknown
+    end
+
+    return stats_mLCP(status, pt.x, pt.λ, pt.s_l, pt.s_u, res.r1Norm, res.r2Norm, cnts.k, elapsed_time)
 end
 
 end
