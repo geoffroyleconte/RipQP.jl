@@ -42,7 +42,7 @@ end
 
 function refinement!(J_fact, Δ_xλ, r)
     r = ldiv!(J_fact, r)
-    Δ_xλ -= r
+    Δ_xλ .-= r
     return Δ_xλ
 end
 
@@ -71,20 +71,20 @@ function solve_augmented_system_aff_ir!(LDL, J_fact, Δ_aff, Δ_xλ, rc, rb, x_m
 
     Δ_aff[1:n_cols+n_rows] = Δ_xλ
     Δ_xλ = ldiv!(J_fact, Δ_xλ)
-    r .= Δ_xλ
-    r = ldl_rmul!(J_fact, r)
+    # r .= Δ_xλ
+    # r = ldl_rmul!(J_fact, r)
+    # r .-= view(Δ_aff, 1:n_cols+n_rows)
+    r = mul!(r, Symmetric(LDL, :U), Δ_xλ)
     r .-= view(Δ_aff, 1:n_cols+n_rows)
-    r2 = Symmetric(LDL, :U) * Δ_xλ - view(Δ_aff, 1:n_cols+n_rows)
-    println("r = ", norm(r, Inf), "   r2 = ", norm(r2, Inf), "     r-r2 = ", norm(r-r2, Inf))
+    # println("r = ", norm(r, Inf))#, "   r2 = ", norm(r2, Inf), "     r-r2 = ", norm(r-r2, Inf))
     if norm(r, Inf) > tol_ir
-        Δ_xλ2 = copy(Δ_xλ)
-        Δ_xλ2 = refinement!(J_fact, Δ_xλ2, r2)
-        r2 = LDL * Δ_xλ2 - view(Δ_aff, 1:n_cols+n_rows)
         Δ_xλ = refinement!(J_fact, Δ_xλ, r)
-        r .= Δ_xλ
-        r = ldl_rmul!(J_fact, r)
+        r = mul!(r, Symmetric(LDL, :U), Δ_xλ)
         r .-= view(Δ_aff, 1:n_cols+n_rows)
-        println("r = ", norm(r, Inf), "   r2 = ", norm(r2, Inf))
+        # r .= Δ_xλ
+        # r = ldl_rmul!(J_fact, r)
+        # r .-= view(Δ_aff, 1:n_cols+n_rows)
+        # println("r = ", norm(r, Inf))#, "   r2 = ", norm(r2, Inf))
         # println(norm(r, Inf))
     end
 
@@ -110,7 +110,7 @@ function solve_augmented_system_cc!(J_fact, Δ_cc, Δ_xλ, Δ_aff, σ, μ, x_m_l
     return Δ_cc
 end
 
-function solve_augmented_system_cc_ir!(J_fact, Δ_cc, Δ_xλ, Δ_aff, σ, μ, x_m_lvar, uvar_m_x, rxs_l, rxs_u, s_l, s_u,
+function solve_augmented_system_cc_ir!(LDL, J_fact, Δ_cc, Δ_xλ, Δ_aff, σ, μ, x_m_lvar, uvar_m_x, rxs_l, rxs_u, s_l, s_u,
                                        ilow, iupp, n_cols, n_rows, n_low, r; tol_ir=1e-16) # iterative refinement
 
     rxs_l .= @views (-σ*μ .+ Δ_aff[1:n_cols][ilow].*Δ_aff[n_rows+n_cols+1: n_rows+n_cols+n_low])
@@ -121,14 +121,12 @@ function solve_augmented_system_cc_ir!(J_fact, Δ_cc, Δ_xλ, Δ_aff, σ, μ, x_
 
     Δ_cc[1:n_cols+n_rows] = Δ_xλ
     Δ_xλ = ldiv!(J_fact, Δ_xλ)
-    r .= Δ_xλ
-    r = ldl_rmul!(J_fact, r)
+    r = mul!(r, Symmetric(LDL, :U), Δ_xλ)
     r .-= view(Δ_cc, 1:n_cols+n_rows)
     # println(norm(r, Inf))
     if norm(r, Inf) > tol_ir
         Δ_xλ = refinement!(J_fact, Δ_xλ, r)
-        r .= Δ_xλ
-        r = ldl_rmul!(J_fact, r)
+        r = mul!(r, Symmetric(LDL, :U), Δ_xλ)
         r .-= view(Δ_cc, 1:n_cols+n_rows)
         # println(norm(r, Inf))
     end
@@ -214,6 +212,10 @@ function iter_mehrotraPC!(pt :: point{T}, itd :: iter_data{T}, FloatData :: QM_F
     elseif regu.regul == :none
         regu.ρ, regu.δ = zero(T), zero(T)
     end
+    if cnts.refinement
+        LDL = spzeros(T, IntData.n_rows+IntData.n_cols, IntData.n_rows+IntData.n_cols)
+        diagindLDL = diagind(LDL)
+    end
     @inbounds while cnts.k<max_iter && !sc.optimal && !sc.tired # && !small_μ && !small_μ
 
         ###################### J update and factorization ######################
@@ -286,7 +288,7 @@ function iter_mehrotraPC!(pt :: point{T}, itd :: iter_data{T}, FloatData :: QM_F
             break
         end
         ########################################################################
-        L = itd.J_fact.L + I
+        # L = itd.J_fact.L + I
         # D = itd.J_fact.D
         # LDL = spzeros(T, IntData.n_rows+IntData.n_cols, IntData.n_rows+IntData.n_cols)
         # LDL = copy(L)
@@ -294,12 +296,22 @@ function iter_mehrotraPC!(pt :: point{T}, itd :: iter_data{T}, FloatData :: QM_F
         # LDL = rmul!(LDL, D)
         # LDL *= L'
         # L = UnitLowerTriangular(itd.J_fact.L)
-        LDL = L*itd.J_fact.D*(L')
-        permute!(LDL, itd.J_fact.pinv, itd.J_fact.pinv)
-        pad.Δ_aff = solve_augmented_system_aff_ir!(LDL, itd.J_fact, pad.Δ_aff, pad.Δ_xλ, res.rc, res.rb,
-                                                itd.x_m_lvar, itd.uvar_m_x, pt.s_l, pt.s_u,
-                                                IntData.ilow, IntData.iupp, IntData.n_cols, IntData.n_rows,
-                                                IntData.n_low, pad.r)
+        # LDL = L*itd.J_fact.D*(L')
+        # permute!(LDL, itd.J_fact.pinv, itd.J_fact.pinv)
+        if cnts.refinement
+            LDL.nzval .= zero(T)
+            LDL[diagindLDL] .= one(T)
+            LDL = ldl_rmul!(itd.J_fact, LDL)
+            pad.Δ_aff = solve_augmented_system_aff_ir!(LDL, itd.J_fact, pad.Δ_aff, pad.Δ_xλ, res.rc, res.rb,
+                                                    itd.x_m_lvar, itd.uvar_m_x, pt.s_l, pt.s_u,
+                                                    IntData.ilow, IntData.iupp, IntData.n_cols, IntData.n_rows,
+                                                    IntData.n_low, pad.r)
+        else
+            pad.Δ_aff = solve_augmented_system_aff!(itd.J_fact, pad.Δ_aff, pad.Δ_xλ, res.rc, res.rb,
+                                                    itd.x_m_lvar, itd.uvar_m_x, pt.s_l, pt.s_u,
+                                                    IntData.ilow, IntData.iupp, IntData.n_cols, IntData.n_rows,
+                                                    IntData.n_low)
+        end
         α_aff_pri = @views compute_α_primal(pt.x, pad.Δ_aff[1:IntData.n_cols], FloatData.lvar, FloatData.uvar)
         α_aff_dual_l = @views compute_α_dual(pt.s_l[IntData.ilow],
                                              pad.Δ_aff[IntData.n_rows+IntData.n_cols+1:IntData.n_rows+IntData.n_cols+IntData.n_low])
@@ -318,10 +330,17 @@ function iter_mehrotraPC!(pt :: point{T}, itd :: iter_data{T}, FloatData :: QM_F
         σ = (μ_aff / itd.μ)^3
 
         # corrector and centering step
-        pad.Δ_cc = solve_augmented_system_cc_ir!(itd.J_fact, pad.Δ_cc, pad.Δ_xλ , pad.Δ_aff, σ, itd.μ,
-                                              itd.x_m_lvar, itd.uvar_m_x, pad.rxs_l, pad.rxs_u, pt.s_l, pt.s_u,
-                                              IntData.ilow, IntData.iupp, IntData.n_cols, IntData.n_rows,
-                                              IntData.n_low, pad.r)
+        if cnts.refinement
+            pad.Δ_cc = solve_augmented_system_cc_ir!(LDL, itd.J_fact, pad.Δ_cc, pad.Δ_xλ , pad.Δ_aff, σ, itd.μ,
+                                                  itd.x_m_lvar, itd.uvar_m_x, pad.rxs_l, pad.rxs_u, pt.s_l, pt.s_u,
+                                                  IntData.ilow, IntData.iupp, IntData.n_cols, IntData.n_rows,
+                                                  IntData.n_low, pad.r)
+        else
+            pad.Δ_cc = solve_augmented_system_cc!(itd.J_fact, pad.Δ_cc, pad.Δ_xλ , pad.Δ_aff, σ, itd.μ,
+                                                  itd.x_m_lvar, itd.uvar_m_x, pad.rxs_l, pad.rxs_u, pt.s_l, pt.s_u,
+                                                  IntData.ilow, IntData.iupp, IntData.n_cols, IntData.n_rows,
+                                                  IntData.n_low)
+        end
         pad.Δ .= pad.Δ_aff .+ pad.Δ_cc # final direction
         α_pri = @views compute_α_primal(pt.x, pad.Δ[1:IntData.n_cols], FloatData.lvar, FloatData.uvar)
         α_dual_l = @views compute_α_dual(pt.s_l[IntData.ilow],

@@ -151,9 +151,10 @@ mutable struct stop_crit
 end
 
 mutable struct counters
-    c_catch  :: Int # safety try:cath
-    c_pdd    :: Int # maximum number of δ_min reductions when pdd does not change
-    k        :: Int # iter count
-    km       :: Int # iter relative to precision: if k+=1 and T==Float128, km +=16  (km+=4 if T==Float64 and km+=1 if T==Float32)
-    K        :: Int # maximum corrector steps
+    c_catch    :: Int # safety try:cath
+    c_pdd      :: Int # maximum number of δ_min reductions when pdd does not change
+    k          :: Int # iter count
+    km         :: Int # iter relative to precision: if k+=1 and T==Float128, km +=16  (km+=4 if T==Float64 and km+=1 if T==Float32)
+    K          :: Int # maximum corrector steps
+    refinement :: Bool
 end

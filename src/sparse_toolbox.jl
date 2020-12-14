@@ -106,9 +106,9 @@ end
 
 # compute J_fact * x
 function ldl_ltmul!(n, x::AbstractVector, Lp, Li, Lx)
-    for j=1:n
+    @inbounds for j=1:n
         xj = x[j]
-        for p = Lp[j] : (Lp[j+1] - 1)
+        @inbounds for p = Lp[j] : (Lp[j+1] - 1)
             xj += Lx[p] * x[Li[p]]
         end
         x[j] = xj
@@ -117,16 +117,16 @@ function ldl_ltmul!(n, x::AbstractVector, Lp, Li, Lx)
 end
 
 function ldl_dmul!(n, x::AbstractVector, D)
-    for j = 1:n
+    @inbounds for j = 1:n
         x[j] *= D[j]
     end
     return x
 end
 
 function ldl_lmul!(n, x::AbstractVector, Lp, Li, Lx)
-    for j = n:-1:1
+    @inbounds for j = n:-1:1
         xj = x[j]
-        for p = Lp[j] : (Lp[j+1] - 1)
+        @inbounds for p = Lp[j] : (Lp[j+1] - 1)
             x[Li[p]] += Lx[p] * xj
         end
     end
@@ -141,6 +141,49 @@ function ldl_mul!(n, x::AbstractVector, Lp, Li, Lx, D, P)
   return x
 end
 
+function ldl_ltmul!(n, X::AbstractMatrix{T}, Lp, Li, Lx) where T
+    @inbounds for j=1:n
+        @inbounds for p = Lp[j] : (Lp[j+1] - 1)
+            for k ∈ axes(X, 2)
+                X[j, k] += Lx[p] * X[Li[p], k]
+            end
+        end
+    end
+    return X
+end
+
+function ldl_dmul!(n, X::AbstractMatrix{T}, D) where T
+    @inbounds for j = 1:n
+        @inbounds for k ∈ axes(X, 2)
+            X[j, k] *= D[j]
+        end
+    end
+    return X
+end
+
+function ldl_lmul!(n, X::AbstractMatrix{T}, Lp, Li, Lx) where T
+    @inbounds for j = n:-1:1
+        @inbounds for p = Lp[j] : (Lp[j+1] - 1)
+            for k ∈ axes(X, 2)
+                X[Li[p], k] += Lx[p] * X[j, k]
+            end
+        end
+    end
+    return X
+end
+
+function ldl_mul!(n, X::AbstractMatrix{T}, Lp, Li, Lx, D, P) where T
+    @views Y = X[P, :]
+    ldl_ltmul!(n, Y, Lp, Li, Lx)
+    ldl_dmul!(n, Y, D)
+    ldl_lmul!(n, Y, Lp, Li, Lx)
+  return X
+end
+
 function ldl_rmul!(LDL::LDLFactorizations.LDLFactorization{T,Ti,Tn,Tp}, x::AbstractVector{T}) where {T<:Real,Ti<:Integer,Tn<:Integer,Tp<:Integer}
     return ldl_mul!(LDL.n, x, LDL.Lp, LDL.Li, LDL.Lx, LDL.d, LDL.P)
+end
+
+function ldl_rmul!(LDL::LDLFactorizations.LDLFactorization{T,Ti,Tn,Tp}, X::AbstractMatrix{T}) where {T<:Real,Ti<:Integer,Tn<:Integer,Tp<:Integer}
+    return ldl_mul!(LDL.n, X, LDL.Lp, LDL.Li, LDL.Lx, LDL.d, LDL.P)
 end

@@ -14,7 +14,7 @@ include("sparse_toolbox.jl")
 include("iterations.jl")
 
 """
-    ripqp(QM0; mode=:mono, regul=:classic, scaling=true, K=0,
+    ripqp(QM0; mode=:mono, regul=:classic, scaling=true, K=0, refinement=false,
           max_iter=200, ϵ_pdd=1e-8, ϵ_rb=1e-6, ϵ_rc=1e-6,
           max_iter32=40, ϵ_pdd32=1e-2, ϵ_rb32=1e-4, ϵ_rc32=1e-4,
           max_iter64=180, ϵ_pdd64=1e-4, ϵ_rb64=1e-5, ϵ_rc64=1e-5,
@@ -31,6 +31,7 @@ Returns a `GenericExecutionStats` containing information about the solved proble
     if `:dynamic`, then the regularization is performed during the factorization, and if `:none`,
     no regularization is used
 - `scaling::Bool`: activate/deactivate scaling of A and Q in `QM0`
+- `refinement::Bool` activate/deactivate iterative refinement
 - `K::Int`: number of centrality corrections (set to `-1` for automatic computation)
 - `max_iter::Int`: maximum number of iterations
 - `ϵ_pdd`: primal-dual difference tolerance
@@ -49,7 +50,7 @@ Returns a `GenericExecutionStats` containing information about the solved proble
 - `display::Bool`: activate/deactivate iteration data display
 """
 function ripqp(QM0 :: AbstractNLPModel; mode :: Symbol = :mono, regul :: Symbol = :classic, scaling :: Bool = true,
-               K :: Int = 0,
+               refinement :: Bool = false, K :: Int = 0,
                max_iter :: Int = 200, ϵ_pdd :: Real = 1e-8, ϵ_rb :: Real = 1e-6, ϵ_rc :: Real = 1e-6,
                max_iter32 :: Int = 40, ϵ_pdd32 :: Real = 1e-2, ϵ_rb32 :: Real = 1e-4, ϵ_rc32 :: Real = 1e-4,
                max_iter64 :: Int = 180, ϵ_pdd64 :: Real = 1e-4, ϵ_rb64 :: Real = 1e-5, ϵ_rc64 :: Real = 1e-5, # params for the itermediate ϵ in :multi mode
@@ -86,7 +87,7 @@ function ripqp(QM0 :: AbstractNLPModel; mode :: Symbol = :mono, regul :: Symbol 
 
     Δt = time() - start_time
     sc.tired = Δt > max_time
-    cnts = counters(zero(Int), zero(Int), 0, 0, K==-1 ? nb_corrector_steps(itd.J_augm, IntData.n_cols) : K)
+    cnts = counters(zero(Int), zero(Int), 0, 0, K==-1 ? nb_corrector_steps(itd.J_augm, IntData.n_cols) : K, refinement)
     # display
     if display == true
         @info log_header([:k, :pri_obj, :pdd, :rbNorm, :rcNorm, :n_Δx, :α_pri, :α_du, :μ, :ρ, :δ],
