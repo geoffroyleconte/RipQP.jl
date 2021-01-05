@@ -62,7 +62,7 @@ function solve_augmented_system_aff!(J_fact, Δ_aff, Δ_xλ, rc, rb, x_m_lvar, u
 end
 
 function solve_augmented_system_aff_ir!(LDL, J_fact, Δ_aff, Δ_xλ, rc, rb, x_m_lvar, uvar_m_x,
-                                        s_l, s_u, ilow, iupp,  n_cols, n_rows, n_low, r; tol_ir=1e-16)
+                                        s_l, s_u, ilow, iupp,  n_cols, n_rows, n_low, r, tol_ir)
 
     Δ_xλ[1:n_cols] .= .-rc
     Δ_xλ[n_cols+1:end] .= .-rb
@@ -111,7 +111,7 @@ function solve_augmented_system_cc!(J_fact, Δ_cc, Δ_xλ, Δ_aff, σ, μ, x_m_l
 end
 
 function solve_augmented_system_cc_ir!(LDL, J_fact, Δ_cc, Δ_xλ, Δ_aff, σ, μ, x_m_lvar, uvar_m_x, rxs_l, rxs_u, s_l, s_u,
-                                       ilow, iupp, n_cols, n_rows, n_low, r; tol_ir=1e-16) # iterative refinement
+                                       ilow, iupp, n_cols, n_rows, n_low, r, tol_ir) # iterative refinement
 
     rxs_l .= @views (-σ*μ .+ Δ_aff[1:n_cols][ilow].*Δ_aff[n_rows+n_cols+1: n_rows+n_cols+n_low])
     rxs_u .= @views σ*μ .+ Δ_aff[1:n_cols][iupp].*Δ_aff[n_rows+n_cols+n_low+1: end]
@@ -212,10 +212,10 @@ function iter_mehrotraPC!(pt :: point{T}, itd :: iter_data{T}, FloatData :: QM_F
     elseif regu.regul == :none
         regu.ρ, regu.δ = zero(T), zero(T)
     end
-    if cnts.refinement
-        LDL = spzeros(T, IntData.n_rows+IntData.n_cols, IntData.n_rows+IntData.n_cols)
-        diagindLDL = diagind(LDL)
-    end
+    # if cnts.refinement
+    #     LDL = spzeros(T, IntData.n_rows+IntData.n_cols, IntData.n_rows+IntData.n_cols)
+    #     diagindLDL = diagind(LDL)
+    # end
     @inbounds while cnts.k<max_iter && !sc.optimal && !sc.tired # && !small_μ && !small_μ
 
         ###################### J update and factorization ######################
@@ -298,14 +298,14 @@ function iter_mehrotraPC!(pt :: point{T}, itd :: iter_data{T}, FloatData :: QM_F
         # L = UnitLowerTriangular(itd.J_fact.L)
         # LDL = L*itd.J_fact.D*(L')
         # permute!(LDL, itd.J_fact.pinv, itd.J_fact.pinv)
-        if cnts.refinement
-            LDL.nzval .= zero(T)
-            LDL[diagindLDL] .= one(T)
-            LDL = ldl_rmul!(itd.J_fact, LDL)
-            pad.Δ_aff = solve_augmented_system_aff_ir!(LDL, itd.J_fact, pad.Δ_aff, pad.Δ_xλ, res.rc, res.rb,
+        if cnts.refinement && T == T0
+            # LDL.nzval .= zero(T)
+            # LDL[diagindLDL] .= one(T)
+            # LDL = lmul!(itd.J_fact, LDL)
+            pad.Δ_aff = solve_augmented_system_aff_ir!(itd.J_augm, itd.J_fact, pad.Δ_aff, pad.Δ_xλ, res.rc, res.rb,
                                                     itd.x_m_lvar, itd.uvar_m_x, pt.s_l, pt.s_u,
                                                     IntData.ilow, IntData.iupp, IntData.n_cols, IntData.n_rows,
-                                                    IntData.n_low, pad.r)
+                                                    IntData.n_low, pad.r, T(eps(T)^(1/2)))
         else
             pad.Δ_aff = solve_augmented_system_aff!(itd.J_fact, pad.Δ_aff, pad.Δ_xλ, res.rc, res.rb,
                                                     itd.x_m_lvar, itd.uvar_m_x, pt.s_l, pt.s_u,
@@ -330,11 +330,11 @@ function iter_mehrotraPC!(pt :: point{T}, itd :: iter_data{T}, FloatData :: QM_F
         σ = (μ_aff / itd.μ)^3
 
         # corrector and centering step
-        if cnts.refinement
-            pad.Δ_cc = solve_augmented_system_cc_ir!(LDL, itd.J_fact, pad.Δ_cc, pad.Δ_xλ , pad.Δ_aff, σ, itd.μ,
+        if cnts.refinement && T == T0
+            pad.Δ_cc = solve_augmented_system_cc_ir!(itd.J_augm, itd.J_fact, pad.Δ_cc, pad.Δ_xλ , pad.Δ_aff, σ, itd.μ,
                                                   itd.x_m_lvar, itd.uvar_m_x, pad.rxs_l, pad.rxs_u, pt.s_l, pt.s_u,
                                                   IntData.ilow, IntData.iupp, IntData.n_cols, IntData.n_rows,
-                                                  IntData.n_low, pad.r)
+                                                  IntData.n_low, pad.r, T(eps(T)^(1/2)))
         else
             pad.Δ_cc = solve_augmented_system_cc!(itd.J_fact, pad.Δ_cc, pad.Δ_xλ , pad.Δ_aff, σ, itd.μ,
                                                   itd.x_m_lvar, itd.uvar_m_x, pad.rxs_l, pad.rxs_u, pt.s_l, pt.s_u,
