@@ -3,6 +3,7 @@ include("centrality_corr.jl")
 include("regularization.jl")
 include("solvers/K2LDL.jl")
 include("solvers/K2_5LDL.jl")
+include("solvers/K2minres.jl")
 
 function compute_α_dual(v, dir_v)
     n = length(v)
