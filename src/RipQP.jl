@@ -2,7 +2,7 @@ module RipQP
 
 using LinearAlgebra, Quadmath, SparseArrays, Statistics
 
-using Krylov, LDLFactorizations, LinearOperators, QuadraticModels, SolverTools
+using Krylov, LDLFactorizations, LimitedLDLFactorizations, LinearOperators, QuadraticModels, SolverTools
 
 export ripqp
 

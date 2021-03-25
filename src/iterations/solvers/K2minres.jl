@@ -15,9 +15,11 @@ mutable struct PreallocatedData_K2minres{T<:Real} <: PreallocatedData{T}
     regu             :: Regularization{T}
     diag_Q           :: SparseVector{T,Int} # Q diagonal
     K                :: SparseMatrixCSC{T,Int} # augmented matrix 
-    invDiagK         :: Vector{T}
+    LLDL            :: LimitedLDLFactorization{T,Int}
+    opiLLDL          :: LinearOperator{T}          
     opK              :: PreallocatedLinearOperator{T}
-    y_op             :: Vector{T} # preallocated vector for the LinearOperator
+    y_opK            :: Vector{T} # preallocated vector for the LinearOperator
+    y_opiLLDL        :: Vector{T}
     MS               :: MinresSolver{T, Vector{T}}
     diagind_K        :: Vector{Int} # diagonal indices of J
 end
@@ -27,7 +29,7 @@ function PreallocatedData(sp :: K2minresParams, fd :: QM_FloatData{T}, id :: QM_
 
     # init Regularization values
     if iconf.mode == :mono
-        regu = Regularization(T(sqrt(eps())*1e5), T(sqrt(eps())*1e5), sqrt(eps(T))*10, sqrt(eps(T))*10, :classic)
+        regu = Regularization(T(sqrt(eps())*1e5), T(sqrt(eps())*1e5), sqrt(eps(T))*100, sqrt(eps(T))*100, :classic)
         D = -T(1.0e0)/2 .* ones(T, id.nvar)
     else
         regu = Regularization(T(sqrt(eps())*1e5), T(sqrt(eps())*1e5), T(sqrt(eps(T))*1e0), T(sqrt(eps(T))*1e0), :classic)
@@ -35,8 +37,12 @@ function PreallocatedData(sp :: K2minresParams, fd :: QM_FloatData{T}, id :: QM_
     end
     diag_Q = get_diag_Q(fd.Q.colptr, fd.Q.rowval, fd.Q.nzval, id.nvar)
     K = create_K2(id, D, fd.Q, fd.AT, diag_Q, regu)
-    y_op = zeros(T, id.nvar+id.ncon)
-    opK = PreallocatedLinearOperator(y_op, Symmetric(K, :U))
+    y_opK = zeros(T, id.nvar+id.ncon)
+    y_opiLLDL = zeros(T, id.nvar+id.ncon)
+    opK = PreallocatedLinearOperator(y_opK, Symmetric(K, :U))
+    Kl = K .+ K' .- Diagonal(K)
+    LLDL = lldl(Kl, memory=20)
+    opiLLDL = opilldl(LLDL, y_opiLLDL)
 
     diagind_K = get_diag_sparseCSC(K.colptr, id.ncon+id.nvar)
     invDiagK = regu.δ.*ones(T, id.nvar+id.ncon)
@@ -50,9 +56,11 @@ function PreallocatedData(sp :: K2minresParams, fd :: QM_FloatData{T}, id :: QM_
                                      regu,
                                      diag_Q, #diag_Q
                                      K, #K
-                                     invDiagK,
+                                     LLDL,
+                                     opiLLDL,
                                      opK,
-                                     y_op,
+                                     y_opK,
+                                     y_opiLLDL,
                                      MS, #K_fact
                                      diagind_K #diagind_K
                                      )
@@ -65,12 +73,12 @@ function solver!(pad :: PreallocatedData_K2minres{T}, dda :: DescentDirectionAll
     # erase dda.Δxy_aff only for affine predictor step with PC method
     if step == :aff 
         pad.rhs .= dda.Δxy_aff 
-        dda.Δxy_aff, pad.MS.stats = minres!(pad.MS, pad.opK, pad.rhs, M=opDiagonal(pad.invDiagK))
+        dda.Δxy_aff, pad.MS.stats = minres!(pad.MS, pad.opK, pad.rhs, M=pad.opiLLDL)
         LDL = ldl(Symmetric(pad.K, :U))
         println(norm(dda.Δxy_aff - LDL\pad.rhs))
     else
         pad.rhs .= itd.Δxy
-        itd.Δxy, pad.MS.stats = minres!(pad.MS, pad.opK, pad.rhs, M=opDiagonal(pad.invDiagK))
+        itd.Δxy, pad.MS.stats = minres!(pad.MS, pad.opK, pad.rhs, M=pad.opiLLDL)
     end
     return 0
 end
@@ -89,9 +97,11 @@ function update_pad!(pad :: PreallocatedData_K2minres{T}, dda :: DescentDirectio
     pad.D[pad.diag_Q.nzind] .-= pad.diag_Q.nzval
     pad.K.nzval[view(pad.diagind_K,1:id.nvar)] = pad.D 
 
-    pad.invDiagK[1:id.nvar] .= .-one(T) ./ pad.D 
-    pad.invDiagK[id.nvar+1:end] .= pad.regu.δ 
-    pad.opK = PreallocatedLinearOperator(pad.y_op, Symmetric(pad.K, :U))
+    Kl = pad.K .+ pad.K' .- Diagonal(pad.K)
+    pad.LLDL = lldl(Kl,  memory=40)
+    opiLLDL = opilldl(pad.LLDL, pad.y_opiLLDL)
+    
+    pad.opK = PreallocatedLinearOperator(pad.y_opK, Symmetric(Kl, :L))
 
     return 0
 end
