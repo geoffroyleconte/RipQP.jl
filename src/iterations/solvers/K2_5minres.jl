@@ -69,19 +69,22 @@ function solver!(pad :: PreallocatedData_K2_5minres{T}, dda :: DescentDirectionA
     if step == :aff 
         pad.rhs[1:id.nvar] .= @views dda.Δxy_aff[1:id.nvar] .* pad.D
         pad.rhs[id.nvar+1: end] .= @views dda.Δxy_aff[id.nvar+1: end]
-        dda.Δxy_aff, pad.MS.stats = minres!(pad.MS, pad.opK, pad.rhs, M=opDiagonal(pad.invDiagK))
-        dda.Δxy_aff[1:id.nvar] .*= pad.D
+        pad.MS.x, pad.MS.stats = minres!(pad.MS, pad.opK, pad.rhs, M=opDiagonal(pad.invDiagK))
+        dda.Δxy_aff[1:id.nvar] .= @views pad.MS.x[1: id.nvar] .* pad.D
+        dda.Δxy_aff[id.nvar+1: end] .= @views pad.MS.x[id.nvar+1: end]
         LDL = ldl(Symmetric(pad.K, :U))
         println(norm(dda.Δxy_aff - LDL\pad.rhs))
     else
         if pad.K_scaled
             pad.rhs[1:id.nvar] .= @views itd.Δxy[1:id.nvar] .* pad.D
             pad.rhs[id.nvar+1: end] .= @views itd.Δxy[id.nvar+1: end]
-            itd.Δxy, pad.MS.stats = minres!(pad.MS, pad.opK, pad.rhs, M=opDiagonal(pad.invDiagK))
-            itd.Δxy[1:id.nvar] .*= pad.D
+            pad.MS.x, pad.MS.stats = minres!(pad.MS, pad.opK, pad.rhs, M=opDiagonal(pad.invDiagK))
+            itd.Δxy[1:id.nvar] .= @views pad.MS.x[1: id.nvar] .* pad.D
+            itd.Δxy[id.nvar+1: end] .= @views pad.MS.x[id.nvar+1: end]
         else
             pad.rhs .= itd.Δxy
-            itd.Δxy, pad.MS.stats = minres!(pad.MS, pad.opK, pad.rhs, M=opDiagonal(pad.invDiagK))
+            pad.MS.x, pad.MS.stats = minres!(pad.MS, pad.opK, pad.rhs, M=opDiagonal(pad.invDiagK))
+            itd.Δxy .= pad.MS.x
         end
     end
 

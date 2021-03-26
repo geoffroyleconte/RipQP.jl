@@ -29,7 +29,7 @@ function PreallocatedData(sp :: K2minresParams, fd :: QM_FloatData{T}, id :: QM_
 
     # init Regularization values
     if iconf.mode == :mono
-        regu = Regularization(T(sqrt(eps())*1e5), T(sqrt(eps())*1e5), sqrt(eps(T))*100, sqrt(eps(T))*100, :classic)
+        regu = Regularization(T(sqrt(eps())*1e5), T(sqrt(eps())*1e5), 1e-5*sqrt(eps(T)), 1e0*sqrt(eps(T)), :classic)
         D = -T(1.0e0)/2 .* ones(T, id.nvar)
     else
         regu = Regularization(T(sqrt(eps())*1e5), T(sqrt(eps())*1e5), T(sqrt(eps(T))*1e0), T(sqrt(eps(T))*1e0), :classic)
@@ -40,7 +40,8 @@ function PreallocatedData(sp :: K2minresParams, fd :: QM_FloatData{T}, id :: QM_
     y_opK = zeros(T, id.nvar+id.ncon)
     y_opiLLDL = zeros(T, id.nvar+id.ncon)
     opK = PreallocatedLinearOperator(y_opK, Symmetric(K, :U))
-    Kl = K .+ K' .- Diagonal(K)
+    Krows, Kcols, Kvals = findnz(K)
+    Kl = sparse(Kcols, Krows, Kvals)
     LLDL = lldl(Kl, memory=20)
     opiLLDL = opilldl(LLDL, y_opiLLDL)
 
@@ -73,12 +74,17 @@ function solver!(pad :: PreallocatedData_K2minres{T}, dda :: DescentDirectionAll
     # erase dda.Δxy_aff only for affine predictor step with PC method
     if step == :aff 
         pad.rhs .= dda.Δxy_aff 
-        dda.Δxy_aff, pad.MS.stats = minres!(pad.MS, pad.opK, pad.rhs, M=pad.opiLLDL)
+        (pad.MS.x, pad.MS.stats) = minres!(pad.MS, pad.opK, pad.rhs, M=pad.opiLLDL)
+        dda.Δxy_aff .= pad.MS.x
         LDL = ldl(Symmetric(pad.K, :U))
         println(norm(dda.Δxy_aff - LDL\pad.rhs))
     else
         pad.rhs .= itd.Δxy
-        itd.Δxy, pad.MS.stats = minres!(pad.MS, pad.opK, pad.rhs, M=pad.opiLLDL)
+        # (pad.MS.x, pad.MS.stats) = minres!(pad.MS, pad.opK, pad.rhs, M=pad.opiLLDL)
+        (pad.MS.x, pad.MS.stats) = minres!(pad.MS, pad.opK, pad.rhs, M=pad.opiLLDL)
+        itd.Δxy .= pad.MS.x
+        LDL = ldl(Symmetric(pad.K, :U))
+        println(norm(itd.Δxy - LDL\pad.rhs))
     end
     return 0
 end
@@ -97,11 +103,13 @@ function update_pad!(pad :: PreallocatedData_K2minres{T}, dda :: DescentDirectio
     pad.D[pad.diag_Q.nzind] .-= pad.diag_Q.nzval
     pad.K.nzval[view(pad.diagind_K,1:id.nvar)] = pad.D 
 
-    Kl = pad.K .+ pad.K' .- Diagonal(pad.K)
-    pad.LLDL = lldl(Kl,  memory=40)
-    opiLLDL = opilldl(pad.LLDL, pad.y_opiLLDL)
+    Krows, Kcols, Kvals = findnz(pad.K)
+    Kl = sparse(Kcols, Krows, Kvals)
+    pad.LLDL = lldl(Kl, collect(1: id.nvar+id.ncon), memory=20)
+    pad.opiLLDL = opilldl(pad.LLDL, pad.y_opiLLDL)
+    # pad.opiLLDL = ildl(Kl, memory=20)
     
-    pad.opK = PreallocatedLinearOperator(pad.y_opK, Symmetric(Kl, :L))
+    pad.opK = PreallocatedLinearOperator(pad.y_opK, Symmetric(pad.K, :U))
 
     return 0
 end
