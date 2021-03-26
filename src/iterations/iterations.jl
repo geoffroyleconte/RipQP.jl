@@ -54,10 +54,10 @@ end
 end
 
 function update_pt!(x, y, s_l, s_u, α_pri, α_dual, Δxy, Δs_l, Δs_u, ncon, nvar)
-    x .= @views x .+ α_pri .* Δxy[1:nvar]
-    y .= @views y .+ α_dual .* Δxy[nvar+1: ncon+nvar]
-    s_l .= s_l .+ α_dual .* Δs_l
-    s_u .= s_u .+ α_dual .* Δs_u
+    @avx x .= @views x .+ α_pri .* Δxy[1:nvar]
+    @avx y .= @views y .+ α_dual .* Δxy[nvar+1: ncon+nvar]
+    @avx s_l .= s_l .+ α_dual .* Δs_l
+    @avx s_u .= s_u .+ α_dual .* Δs_u
 end
 
 # "security" if x is too close from lvar or uvar
@@ -81,20 +81,20 @@ end
 function update_IterData!(itd, pt, fd, id, safety) 
 
     T = eltype(itd.x_m_lvar)
-    itd.x_m_lvar .= @views pt.x[id.ilow] .- fd.lvar[id.ilow]
-    itd.uvar_m_x .= @views fd.uvar[id.iupp] .- pt.x[id.iupp]
+    @avx itd.x_m_lvar .= @views pt.x[id.ilow] .- fd.lvar[id.ilow]
+    @avx itd.uvar_m_x .= @views fd.uvar[id.iupp] .- pt.x[id.iupp]
     safety && boundary_safety!(itd.x_m_lvar, itd.uvar_m_x, id.nlow, id.nupp, T)
 
     itd.μ = compute_μ(itd.x_m_lvar, itd.uvar_m_x, pt.s_l, pt.s_u, id.nlow, id.nupp)
-    itd.Qx = mul!(itd.Qx, Symmetric(fd.Q, :U), pt.x)
-    itd.xTQx_2 =  dot(pt.x, itd.Qx) / 2
-    itd.ATy = mul!(itd.ATy, fd.AT, pt.y)
-    itd.Ax = mul!(itd.Ax, fd.AT', pt.x)
+    mul!(itd.Qx, Symmetric(fd.Q, :U), pt.x)
+    itd.xTQx_2 = dot(pt.x, itd.Qx) / 2
+    mul!(itd.ATy, fd.AT, pt.y)
+    mul!(itd.Ax, fd.AT', pt.x)
     itd.cTx = dot(fd.c, pt.x)
     itd.pri_obj = itd.xTQx_2 + itd.cTx + fd.c0
     itd.dual_obj = @views dot(fd.b, pt.y) - itd.xTQx_2 + dot(pt.s_l, fd.lvar[id.ilow]) -
                         dot(pt.s_u, fd.uvar[id.iupp]) + fd.c0  
-    itd.pdd = abs(itd.pri_obj - itd.dual_obj ) / (one(T) + abs(itd.pri_obj))                     
+    itd.pdd = abs(itd.pri_obj - itd.dual_obj) / (one(T) + abs(itd.pri_obj))                     
 end
 
 function update_data!(pt :: Point{T}, α_pri :: T, α_dual :: T, itd :: IterData{T}, pad :: PreallocatedData{T}, 
@@ -105,11 +105,11 @@ function update_data!(pt :: Point{T}, α_pri :: T, α_dual :: T, itd :: IterData
     update_IterData!(itd, pt, fd, id, true)
     
     #update Residuals
-    res.n_Δx = @views α_pri * norm(itd.Δxy[1:id.nvar])
-    res.rb .= itd.Ax .- fd.b
-    res.rc .= itd.ATy .- itd.Qx .- fd.c
-    res.rc[id.ilow] .+= pt.s_l
-    res.rc[id.iupp] .-= pt.s_u
+    res.n_Δx = @avx @views α_pri * norm(itd.Δxy[1:id.nvar])
+    @avx res.rb .= itd.Ax .- fd.b
+    @avx res.rc .= itd.ATy .- itd.Qx .- fd.c
+    @avx res.rc[id.ilow] .+= pt.s_l
+    @avx res.rc[id.iupp] .-= pt.s_u
     # update stopping criterion values:
 #         rcNorm, rbNorm = norm(rc), norm(rb)
 #         xNorm = norm(x)

@@ -38,10 +38,10 @@ convert(::Type{<:DescentDirectionAllocs{T}}, dda :: DescentDirectionAllocsPC{T0}
 function update_pt_aff!(x_m_l_αΔ_aff, u_m_x_αΔ_aff, s_l_αΔ_aff, s_u_αΔ_aff, Δxy_aff, Δs_l_aff, Δs_u_aff, x_m_lvar, uvar_m_x, 
                         s_l, s_u, α_aff_pri, α_aff_dual, ilow, iupp)
 
-    x_m_l_αΔ_aff .= @views x_m_lvar .+ α_aff_pri .* Δxy_aff[ilow]
-    u_m_x_αΔ_aff .= @views uvar_m_x .- α_aff_pri .* Δxy_aff[iupp]
-    s_l_αΔ_aff .= s_l .+ α_aff_dual .* Δs_l_aff
-    s_u_αΔ_aff .= s_u .+ α_aff_dual .* Δs_u_aff
+    @avx x_m_l_αΔ_aff .= @views x_m_lvar .+ α_aff_pri .* Δxy_aff[ilow]
+    @avx u_m_x_αΔ_aff .= @views uvar_m_x .- α_aff_pri .* Δxy_aff[iupp]
+    @avx s_l_αΔ_aff .= s_l .+ α_aff_dual .* Δs_l_aff
+    @avx s_u_αΔ_aff .= s_u .+ α_aff_dual .* Δs_u_aff
 end
 
 # Mehrotra's Predictor-Corrector algorithm
@@ -49,14 +49,14 @@ function update_dd!(dda :: DescentDirectionAllocsPC{T}, pt :: Point{T}, itd :: I
                     id :: QM_IntData, res :: Residuals{T}, pad :: PreallocatedData{T}, cnts :: Counters, T0 :: DataType) where {T<:Real} 
 
     # solve system aff
-    dda.Δxy_aff[1:id.nvar] .= .- res.rc
-    dda.Δxy_aff[id.nvar+1:end] .= .-res.rb
-    dda.Δxy_aff[id.ilow] .+= pt.s_l
-    dda.Δxy_aff[id.iupp] .-= pt.s_u
+    @avx dda.Δxy_aff[1:id.nvar] .= .- res.rc
+    @avx dda.Δxy_aff[id.nvar+1:end] .= .-res.rb
+    @avx dda.Δxy_aff[id.ilow] .+= pt.s_l
+    @avx dda.Δxy_aff[id.iupp] .-= pt.s_u
     out = solver!(pad, dda, pt, itd, fd, id, res, cnts, T0, :aff)
     out == 1 && return out
-    dda.Δs_l_aff .= @views .-pt.s_l .- pt.s_l .* dda.Δxy_aff[id.ilow] ./ itd.x_m_lvar
-    dda.Δs_u_aff .= @views .-pt.s_u .+ pt.s_u .* dda.Δxy_aff[id.iupp] ./ itd.uvar_m_x
+    @avx dda.Δs_l_aff .= @views .-pt.s_l .- pt.s_l .* dda.Δxy_aff[id.ilow] ./ itd.x_m_lvar
+    @avx dda.Δs_u_aff .= @views .-pt.s_u .+ pt.s_u .* dda.Δxy_aff[id.iupp] ./ itd.uvar_m_x
 
     α_aff_pri, α_aff_dual = compute_αs(pt.x, pt.s_l, pt.s_u, fd.lvar, fd.uvar, dda.Δxy_aff, dda.Δs_l_aff, 
                                        dda.Δs_u_aff, id.nvar)
@@ -70,20 +70,20 @@ function update_dd!(dda :: DescentDirectionAllocsPC{T}, pt :: Point{T}, itd :: I
     σ = (μ_aff / itd.μ)^3
 
     # corrector-centering step
-    dda.rxs_l .= @views -σ * itd.μ .+ dda.Δxy_aff[id.ilow] .* dda.Δs_l_aff
-    dda.rxs_u .= @views σ * itd.μ .+ dda.Δxy_aff[id.iupp] .* dda.Δs_u_aff
-    itd.Δxy .= 0
-    itd.Δxy[id.ilow] .+= dda.rxs_l ./ itd.x_m_lvar
-    itd.Δxy[id.iupp] .+= dda.rxs_u ./ itd.uvar_m_x
+    @avx dda.rxs_l .= @views -σ * itd.μ .+ dda.Δxy_aff[id.ilow] .* dda.Δs_l_aff
+    @avx dda.rxs_u .= @views σ * itd.μ .+ dda.Δxy_aff[id.iupp] .* dda.Δs_u_aff
+    @avx itd.Δxy .= 0
+    @avx itd.Δxy[id.ilow] .+= dda.rxs_l ./ itd.x_m_lvar
+    @avx itd.Δxy[id.iupp] .+= dda.rxs_u ./ itd.uvar_m_x
     out = solver!(pad, dda, pt, itd, fd, id, res, cnts, T0, :cc)
     out == 1 && return out
-    itd.Δs_l .= @views .-(dda.rxs_l .+ pt.s_l .* itd.Δxy[id.ilow]) ./ itd.x_m_lvar
-    itd.Δs_u .= @views (dda.rxs_u .+ pt.s_u .* itd.Δxy[id.iupp]) ./ itd.uvar_m_x
+    @avx itd.Δs_l .= @views .-(dda.rxs_l .+ pt.s_l .* itd.Δxy[id.ilow]) ./ itd.x_m_lvar
+    @avx itd.Δs_u .= @views (dda.rxs_u .+ pt.s_u .* itd.Δxy[id.iupp]) ./ itd.uvar_m_x
 
     # final direction
-    itd.Δxy .+= dda.Δxy_aff  
-    itd.Δs_l .+= dda.Δs_l_aff
-    itd.Δs_u .+= dda.Δs_u_aff
+    @avx itd.Δxy .+= dda.Δxy_aff  
+    @avx itd.Δs_l .+= dda.Δs_l_aff
+    @avx itd.Δs_u .+= dda.Δs_u_aff
 
     return out
 end

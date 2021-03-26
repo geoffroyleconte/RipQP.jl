@@ -205,14 +205,14 @@ function factorize_K2!(K, K_fact, D, diag_Q , diagind_K, regu, s_l, s_u, x_m_lva
                        ilow, iupp, ncon, nvar, cnts, qp, T, T0) 
 
     if regu.regul == :classic
-        D .= -regu.ρ
-        K.nzval[view(diagind_K, nvar+1:ncon+nvar)] .= regu.δ
+        @avx D .= -regu.ρ
+        @avx K.nzval[view(diagind_K, nvar+1:ncon+nvar)] .= regu.δ
     else
-        D .= zero(T)
+        @avx D .= zero(T)
     end
-    D[ilow] .-= s_l ./ x_m_lvar
-    D[iupp] .-= s_u ./ uvar_m_x
-    D[diag_Q.nzind] .-= diag_Q.nzval
+    @avx D[ilow] .-= s_l ./ x_m_lvar
+    @avx D[iupp] .-= s_u ./ uvar_m_x
+    @avx D[diag_Q.nzind] .-= diag_Q.nzval
     K.nzval[view(diagind_K,1:nvar)] = D 
 
     if regu.regul == :dynamic
@@ -236,12 +236,12 @@ function factorize_K2!(K, K_fact, D, diag_Q , diagind_K, regu, s_l, s_u, x_m_lva
             out == 1 && return out
             cnts.c_catch += 1
             cnts.c_catch >= 4 && return 1
-            D .= -regu.ρ
-            D[ilow] .-= s_l ./ x_m_lvar
-            D[iupp] .-= s_u ./ uvar_m_x
-            D[diag_Q.nzind] .-= diag_Q.nzval
+            @avx D .= -regu.ρ
+            @avx D[ilow] .-= s_l ./ x_m_lvar
+            @avx D[iupp] .-= s_u ./ uvar_m_x
+            @avx D[diag_Q.nzind] .-= diag_Q.nzval
             K.nzval[view(diagind_K,1:nvar)] = D 
-            K.nzval[view(diagind_K, nvar+1:ncon+nvar)] .= regu.δ
+            @avx K.nzval[view(diagind_K, nvar+1:ncon+nvar)] .= regu.δ
             ldl_factorize!(Symmetric(K, :U), K_fact)
         end
 

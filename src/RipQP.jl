@@ -1,6 +1,6 @@
 module RipQP
 
-using LinearAlgebra, Quadmath, SparseArrays, Statistics
+using LinearAlgebra, Quadmath, SparseArrays, Statistics, LoopVectorization
 
 using LDLFactorizations, QuadraticModels, SolverTools
 

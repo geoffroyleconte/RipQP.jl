@@ -24,8 +24,8 @@ function mul_AT_D1_D2!(AT_colptr, AT_rowval, AT_nzval, d1, d2, r, c)
             AT_nzval[i] /= r[AT_rowval[i]] * c[j]
         end
     end
-    d1 ./= c
-    d2 ./= r
+    @avx d1 ./= c
+    @avx d2 ./= r
 end
 
 function mul_AT_D3!(AT_colptr, AT_rowval, AT_nzval, n, d3)
@@ -74,14 +74,14 @@ function scaling_Ruiz!(fd_T0 :: QM_FloatData{T}, id :: QM_IntData, ϵ :: T;
     end
 
     mul_Q_D2!(fd_T0.Q.colptr, fd_T0.Q.rowval, fd_T0.Q.nzval, d2)
-    fd_T0.b .*= d1
-    fd_T0.c .*= d2
-    fd_T0.lvar ./= d2
-    fd_T0.uvar ./= d2
+    @avx fd_T0.b .*= d1
+    @avx fd_T0.c .*= d2
+    @avx fd_T0.lvar ./= d2
+    @avx fd_T0.uvar ./= d2
 
     # scaling Q (symmetric)
     d3 = ones(T, id.nvar)
-    r_k .= zero(T) # r_k is now norm of rows of Q
+    @avx r_k .= zero(T) # r_k is now norm of rows of Q
     get_norm_rc!(r_k, fd_T0.Q.colptr, fd_T0.Q.rowval, fd_T0.Q.nzval, id.nvar,:row)
     convergence = maximum(abs.(one(T) .- r_k)) <= ϵ
     mul_Q_D!(fd_T0.Q.colptr, fd_T0.Q.rowval, fd_T0.Q.nzval, d3, r_k)
@@ -94,9 +94,9 @@ function scaling_Ruiz!(fd_T0 :: QM_FloatData{T}, id :: QM_IntData, ϵ :: T;
     end
 
     mul_AT_D3!(fd_T0.AT.colptr, fd_T0.AT.rowval, fd_T0.AT.nzval, fd_T0.AT.n, d3)
-    fd_T0.c .*= d3
-    fd_T0.lvar ./= d3
-    fd_T0.uvar ./= d3
+    @avx fd_T0.c .*= d3
+    @avx fd_T0.lvar ./= d3
+    @avx fd_T0.uvar ./= d3
 
     return fd_T0, d1, d2, d3
 end
@@ -121,28 +121,28 @@ function post_scale(d1 :: Vector{T}, d2 :: Vector{T}, d3 :: Vector{T}, pt :: Poi
                     fd_T0 :: QM_FloatData{T}, id :: QM_IntData, Qx :: Vector{T}, ATy :: Vector{T},
                     Ax :: Vector{T}, cTx :: T, pri_obj :: T, dual_obj :: T, xTQx_2 :: T) where {T<:Real}
                     
-    pt.x .*= d2 .* d3
+    @avx pt.x .*= d2 .* d3
     div_D2D3_Q_D3D2!(fd_T0.Q.colptr, fd_T0.Q.rowval, fd_T0.Q.nzval, d2, d3, id.nvar)
-    Qx = mul!(Qx, Symmetric(fd_T0.Q, :U), pt.x)
-    xTQx_2 =  dot(pt.x, Qx) / 2
+    mul!(Qx, Symmetric(fd_T0.Q, :U), pt.x)
+    xTQx_2 = dot(pt.x, Qx) / 2
     div_D1_A_D2D3!(fd_T0.AT.colptr, fd_T0.AT.rowval, fd_T0.AT.nzval, d1, d2, d3, id.ncon)
-    pt.y .*= d1
+    @avx pt.y .*= d1
     ATy = mul!(ATy, fd_T0.AT, pt.y)
     Ax = mul!(Ax, fd_T0.AT', pt.x)
-    fd_T0.b ./= d1
-    fd_T0.c ./= d2 .* d3
+    @avx fd_T0.b ./= d1
+    @avx fd_T0.c ./= d2 .* d3
     cTx = dot(fd_T0.c, pt.x)
     pri_obj = xTQx_2 + cTx + fd_T0.c0
-    fd_T0.lvar .*= d2 .* d3
-    fd_T0.uvar .*= d2 .* d3
-    pt.s_l ./= @views d2[id.ilow] .* d3[id.ilow]
-    pt.s_u ./= @views d2[id.iupp] .* d3[id.iupp]
+    @avx fd_T0.lvar .*= d2 .* d3
+    @avx fd_T0.uvar .*= d2 .* d3
+    @avx pt.s_l ./= @views d2[id.ilow] .* d3[id.ilow]
+    @avx pt.s_u ./= @views d2[id.iupp] .* d3[id.iupp]
     dual_obj = dot(fd_T0.b, pt.y) - xTQx_2 + dot(pt.s_l, view(fd_T0.lvar, id.ilow)) -
                     dot(pt.s_u, view(fd_T0.uvar, id.iupp)) + fd_T0.c0
-    res.rb .= Ax .- fd_T0.b
-    res.rc .= ATy .-Qx .- fd_T0.c
-    res.rc[id.ilow] .+= pt.s_l
-    res.rc[id.iupp] .-= pt.s_u
+    @avx res.rb .= Ax .- fd_T0.b
+    @avx res.rc .= ATy .- Qx .- fd_T0.c
+    @avx res.rc[id.ilow] .+= pt.s_l
+    @avx res.rc[id.iupp] .-= pt.s_u
     #         rcNorm, rbNorm = norm(rc), norm(rb)
     res.rcNorm, res.rbNorm = norm(res.rc, Inf), norm(res.rb, Inf)
 
