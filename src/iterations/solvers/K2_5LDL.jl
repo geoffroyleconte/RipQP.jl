@@ -28,6 +28,7 @@ end
  
 mutable struct PreallocatedData_K2_5{T<:Real} <: PreallocatedData{T} 
     D                :: Vector{T}                                        # temporary top-left diagonal
+    sqrtx1x2         :: Vector{T} # scaling vector
     regu             :: Regularization{T}
     diag_Q           :: SparseVector{T,Int} # Q diagonal
     K                :: SparseMatrixCSC{T,Int} # augmented matrix 
@@ -65,6 +66,7 @@ function PreallocatedData(sp :: K2_5LDLParams, fd :: QM_FloatData{T}, id :: QM_I
     K_fact.__factorized = true
 
     return PreallocatedData_K2_5(D,
+                                 similar(D),
                                  regu,
                                  diag_Q, #diag_Q
                                  K, #K
@@ -77,6 +79,7 @@ end
                 
 function convertpad(::Type{<:PreallocatedData{T}}, pad :: PreallocatedData_K2_5{T_old}, T0 :: DataType) where {T<:Real, T_old<:Real}
     pad =  PreallocatedData_K2_5(convert(Array{T}, pad.D),
+                                 convert(Array{T}, pad.sqrtx1x2),
                                  convert(Regularization{T}, pad.regu),
                                  convert(SparseVector{T,Int}, pad.diag_Q),
                                  convert(SparseMatrixCSC{T,Int}, pad.K),
@@ -108,14 +111,14 @@ function solver!(pad :: PreallocatedData_K2_5{T}, dda :: DescentDirectionAllocs{
                  step :: Symbol) where {T<:Real} 
 
     if step == :aff 
-        dda.Δxy_aff[1:id.nvar] .*= pad.D
+        dda.Δxy_aff[1:id.nvar] .*= pad.sqrtx1x2
         LDLFactorizations.ldiv!(pad.K_fact, dda.Δxy_aff) 
-        dda.Δxy_aff[1:id.nvar] .*= pad.D
+        dda.Δxy_aff[1:id.nvar] .*= pad.sqrtx1x2
     else
         if pad.K_scaled
-            itd.Δxy[1:id.nvar] .*= pad.D
+            itd.Δxy[1:id.nvar] .*= pad.sqrtx1x2
             LDLFactorizations.ldiv!(pad.K_fact, itd.Δxy)
-            itd.Δxy[1:id.nvar] .*= pad.D
+            itd.Δxy[1:id.nvar] .*= pad.sqrtx1x2
         else
             LDLFactorizations.ldiv!(pad.K_fact, itd.Δxy)
         end
@@ -124,15 +127,18 @@ function solver!(pad :: PreallocatedData_K2_5{T}, dda :: DescentDirectionAllocs{
     if step == :cc || step == :IPF  # update regularization and restore K. Cannot be done in update_pad since x-lvar and uvar-x will change.
         out = 0
         if pad.regu.regul == :classic # update ρ and δ values, check K diag magnitude 
-            out = update_regu_diagK2_5!(pad.regu, pad.D, itd.pdd, itd.l_pdd, itd.mean_pdd, cnts, T, T0) 
+            out = update_regu_diagK2_5!(pad.regu, pad.sqrtx1x2, itd.pdd, itd.l_pdd, itd.mean_pdd, cnts, T, T0) 
+
+            # out = update_regu_diagK2!(pad.regu, pad.K.nzval, pad.diagind_K, id.nvar, itd.pdd, 
+            #                           itd.l_pdd, itd.mean_pdd, cnts, T, T0) 
         end
     
         # restore J for next iteration
         if pad.K_scaled
-            pad.D .= one(T) 
-            pad.D[id.ilow] ./= sqrt.(itd.x_m_lvar)
-            pad.D[id.iupp] ./= sqrt.(itd.uvar_m_x)
-            lrmultilply_J!(pad.K.colptr, pad.K.rowval, pad.K.nzval, pad.D, id.nvar)
+            pad.sqrtx1x2 .= one(T) 
+            pad.sqrtx1x2[id.ilow] ./= sqrt.(itd.x_m_lvar)
+            pad.sqrtx1x2[id.iupp] ./= sqrt.(itd.uvar_m_x)
+            lrmultilply_J!(pad.K.colptr, pad.K.rowval, pad.K.nzval, pad.sqrtx1x2, id.nvar)
             pad.K_scaled = false
         end
         out == 1 && return out
@@ -144,7 +150,7 @@ function update_pad!(pad :: PreallocatedData_K2_5{T}, dda :: DescentDirectionAll
                      fd :: Abstract_QM_FloatData{T}, id :: QM_IntData, res :: Residuals{T}, cnts :: Counters, T0 :: DataType) where {T<:Real}
 
     pad.K_scaled = false
-    out = factorize_K2_5!(pad.K, pad.K_fact, pad.D, pad.diag_Q, pad.diagind_K, pad.regu, 
+    out = factorize_K2_5!(pad.K, pad.K_fact, pad.D, pad.sqrtx1x2, pad.diag_Q, pad.diagind_K, pad.regu, 
                           pt.s_l, pt.s_u, itd.x_m_lvar, itd.uvar_m_x, id.ilow, id.iupp, 
                           id.ncon, id.nvar, cnts, itd.qp, T, T0)
     out == 1 && return out
@@ -176,37 +182,43 @@ end
 #     rmul!(J, v)
 # end
 
-
 # iteration functions for the K2.5 system
-function factorize_K2_5!(K, K_fact, D, diag_Q , diagind_K, regu, s_l, s_u, x_m_lvar, uvar_m_x, 
+function factorize_K2_5!(K, K_fact, D, sqrtx1x2, diag_Q, diagind_K, regu, s_l, s_u, x_m_lvar, uvar_m_x, 
                          ilow, iupp, ncon, nvar, cnts, qp, T, T0) 
 
-    if regu.regul == :classic
-        D .= -regu.ρ
-        K.nzval[view(diagind_K, nvar+1:ncon+nvar)] .= regu.δ
-    else
-        D .= zero(T)
-    end
-    D[ilow] .-= s_l ./ x_m_lvar
-    D[iupp] .-= s_u ./ uvar_m_x
-    D[diag_Q.nzind] .-= diag_Q.nzval
+    sqrtx1x2 .= one(T)
+    sqrtx1x2[ilow] .*= sqrt.(x_m_lvar)
+    sqrtx1x2[iupp] .*= sqrt.(uvar_m_x)
+    lrmultilply_J!(K.colptr, K.rowval, K.nzval, sqrtx1x2, nvar)
+    
+    D .= 0
+    D[ilow] .-= s_l 
+    D[iupp] .*= uvar_m_x
     K.nzval[view(diagind_K,1:nvar)] = D 
-
-    D .= one(T)
-    D[ilow] .*= sqrt.(x_m_lvar)
-    D[iupp] .*= sqrt.(uvar_m_x)
-    lrmultilply_J!(K.colptr, K.rowval, K.nzval, D, nvar)
+    D .= 0
+    D[iupp] .-= s_u 
+    D[ilow] .*= x_m_lvar
+    K.nzval[view(diagind_K,1:nvar)] .+= D 
+    D .= 0
+    D[diag_Q.nzind] .-= diag_Q.nzval
+    D[ilow] .*= x_m_lvar
+    D[iupp] .*= uvar_m_x
+    K.nzval[view(diagind_K,1:nvar)] .+= D 
+    if regu.regul == :classic
+        K.nzval[view(diagind_K,1:nvar)] .-= regu.ρ #.* sqrtx1x2.^2
+        K.nzval[view(diagind_K, nvar+1:ncon+nvar)] .= regu.δ
+    end
 
     if regu.regul == :dynamic
         # Amax = @views norm(K.nzval[diagind_K], Inf)
-        Amax = minimum(D)
+        Amax = minimum(sqrtx1x2)
         if Amax < sqrt(eps(T)) && cnts.c_pdd < 8
             if T == Float32
                 # restore J for next iteration
-                D .= one(T) 
-                D[ilow] ./= sqrt.(x_m_lvar)
-                D[iupp] ./= sqrt.(uvar_m_x)
-                lrmultilply_J!(K.colptr, K.rowval, K.nzval, D, nvar)
+                sqrtx1x2 .= one(T) 
+                sqrtx1x2[ilow] ./= sqrt.(x_m_lvar)
+                sqrtx1x2[iupp] ./= sqrt.(uvar_m_x)
+                lrmultilply_J!(K.colptr, K.rowval, K.nzval, sqrtx1x2, nvar)
                 return one(Int) # update to Float64
             elseif qp || cnts.c_pdd < 4
                 cnts.c_pdd += 1
@@ -224,25 +236,30 @@ function factorize_K2_5!(K, K_fact, D, diag_Q , diagind_K, regu, s_l, s_u, x_m_l
             out = update_regu_trycatch!(regu, cnts, T, T0)
             if out == 1 
                 # restore J for next iteration
-                D .= one(T) 
-                D[ilow] ./= sqrt.(x_m_lvar)
-                D[iupp] ./= sqrt.(uvar_m_x)
-                lrmultilply_J!(K.colptr, K.rowval, K.nzval, D, nvar)
+                sqrtx1x2 .= one(T) 
+                sqrtx1x2[ilow] ./= sqrt.(x_m_lvar)
+                sqrtx1x2[iupp] ./= sqrt.(uvar_m_x)
+                lrmultilply_J!(K.colptr, K.rowval, K.nzval, sqrtx1x2, nvar)
                 return out
             end
             cnts.c_catch += 1
             cnts.c_catch >= 4 && return 1
-            D .= -regu.ρ       
-            D[ilow] .-= s_l ./ x_m_lvar
-            D[iupp] .-= s_u ./ uvar_m_x
-            D[diag_Q.nzind] .-= diag_Q.nzval
+            D .= 0
+            D[ilow] .-= s_l 
+            D[iupp] .*= uvar_m_x
             K.nzval[view(diagind_K,1:nvar)] = D 
-        
-            D .= one(T)
-            D[ilow] .*= sqrt.(x_m_lvar)
-            D[iupp] .*= sqrt.(uvar_m_x)
-            K.nzval[view(diagind_K,1:nvar)] .*= D.^2
+            D .= 0
+            D[iupp] .-= s_u 
+            D[ilow] .*= x_m_lvar
+            K.nzval[view(diagind_K,1:nvar)] .+= D 
+            D .= 0
+            D[diag_Q.nzind] .-= diag_Q.nzval
+            D[ilow] .*= x_m_lvar
+            D[iupp] .*= uvar_m_x
+            K.nzval[view(diagind_K,1:nvar)] .+= D 
+            K.nzval[view(diagind_K,1:nvar)] .-= regu.ρ
             K.nzval[view(diagind_K, nvar+1:ncon+nvar)] .= regu.δ
+            
             ldl_factorize!(Symmetric(K, :U), K_fact)
         end
 
