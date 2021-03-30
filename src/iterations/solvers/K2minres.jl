@@ -1,25 +1,25 @@
 export K2minresParams
 
 struct K2minresParams <: SolverParams
+    preconditioner :: Symbol
     atol :: Float64 
     rtol :: Float64
 end
 
-function K2minresParams(; atol :: T = 1.0e-6, rtol :: T = 1.0e-6) where {T<:Real} 
-    return K2minresParams(atol, rtol)
+function K2minresParams(; preconditioner = :LLDLData, atol :: T = 1.0e-6, rtol :: T = 1.0e-6) where {T<:Real} 
+    return K2minresParams(preconditioner, atol, rtol)
 end
 
 mutable struct PreallocatedData_K2minres{T<:Real} <: PreallocatedData{T} 
+    pdat             :: PreconditionerDataK2{T}
+    P                :: LinearOperator{T}
     D                :: Vector{T}                                        # temporary top-left diagonal
     rhs              :: Vector{T}
     regu             :: Regularization{T}
     diag_Q           :: SparseVector{T,Int} # Q diagonal
-    K                :: SparseMatrixCSC{T,Int} # augmented matrix 
-    LLDL            :: LimitedLDLFactorization{T,Int}
-    opiLLDL          :: LinearOperator{T}          
+    K                :: SparseMatrixCSC{T,Int} # augmented matrix          
     opK              :: PreallocatedLinearOperator{T}
     y_opK            :: Vector{T} # preallocated vector for the LinearOperator
-    y_opiLLDL        :: Vector{T}
     MS               :: MinresSolver{T, Vector{T}}
     diagind_K        :: Vector{Int} # diagonal indices of J
 end
@@ -29,7 +29,7 @@ function PreallocatedData(sp :: K2minresParams, fd :: QM_FloatData{T}, id :: QM_
 
     # init Regularization values
     if iconf.mode == :mono
-        regu = Regularization(T(sqrt(eps())*1e5), T(sqrt(eps())*1e5), 1e-5*sqrt(eps(T)), 1e0*sqrt(eps(T)), :classic)
+        regu = Regularization(T(sqrt(eps())*1e5), T(sqrt(eps())*1e5), 1e0*sqrt(eps(T)), 1e0*sqrt(eps(T)), :classic)
         D = -T(1.0e0)/2 .* ones(T, id.nvar)
     else
         regu = Regularization(T(sqrt(eps())*1e5), T(sqrt(eps())*1e5), T(sqrt(eps(T))*1e0), T(sqrt(eps(T))*1e0), :classic)
@@ -37,31 +37,24 @@ function PreallocatedData(sp :: K2minresParams, fd :: QM_FloatData{T}, id :: QM_
     end
     diag_Q = get_diag_Q(fd.Q.colptr, fd.Q.rowval, fd.Q.nzval, id.nvar)
     K = create_K2(id, D, fd.Q, fd.AT, diag_Q, regu)
-    y_opK = zeros(T, id.nvar+id.ncon)
-    y_opiLLDL = zeros(T, id.nvar+id.ncon)
-    opK = PreallocatedLinearOperator(y_opK, Symmetric(K, :U))
-    Krows, Kcols, Kvals = findnz(K)
-    Kl = sparse(Kcols, Krows, Kvals)
-    LLDL = lldl(Kl, memory=20)
-    opiLLDL = opilldl(LLDL, y_opiLLDL)
-
     diagind_K = get_diag_sparseCSC(K.colptr, id.ncon+id.nvar)
-    invDiagK = regu.δ.*ones(T, id.nvar+id.ncon)
-    invDiagK[1:id.nvar] = .-D
+    y_opK = zeros(T, id.nvar+id.ncon)
+    opK = PreallocatedLinearOperator(y_opK, Symmetric(K, :U))
     
     rhs = zeros(T, id.nvar+id.ncon)
     MS = MinresSolver(K, rhs)
 
-    return PreallocatedData_K2minres(D,
+    pdat, P = eval(sp.preconditioner)(id, regu, D, K)
+
+    return PreallocatedData_K2minres(pdat,
+                                     P,
+                                     D,
                                      rhs, 
                                      regu,
                                      diag_Q, #diag_Q
                                      K, #K
-                                     LLDL,
-                                     opiLLDL,
                                      opK,
                                      y_opK,
-                                     y_opiLLDL,
                                      MS, #K_fact
                                      diagind_K #diagind_K
                                      )
@@ -74,17 +67,15 @@ function solver!(pad :: PreallocatedData_K2minres{T}, dda :: DescentDirectionAll
     # erase dda.Δxy_aff only for affine predictor step with PC method
     if step == :aff 
         pad.rhs .= dda.Δxy_aff 
-        (pad.MS.x, pad.MS.stats) = minres!(pad.MS, pad.opK, pad.rhs, M=pad.opiLLDL)
+        (pad.MS.x, pad.MS.stats) = minres!(pad.MS, pad.opK, pad.rhs, M=pad.P)
         dda.Δxy_aff .= pad.MS.x
-        LDL = ldl(Symmetric(pad.K, :U))
-        println(norm(dda.Δxy_aff - LDL\pad.rhs))
+        println(norm(Symmetric(pad.K, :U) * dda.Δxy_aff - pad.rhs))
     else
         pad.rhs .= itd.Δxy
         # (pad.MS.x, pad.MS.stats) = minres!(pad.MS, pad.opK, pad.rhs, M=pad.opiLLDL)
-        (pad.MS.x, pad.MS.stats) = minres!(pad.MS, pad.opK, pad.rhs, M=pad.opiLLDL)
+        (pad.MS.x, pad.MS.stats) = minres!(pad.MS, pad.opK, pad.rhs, M=pad.P)
         itd.Δxy .= pad.MS.x
-        LDL = ldl(Symmetric(pad.K, :U))
-        println(norm(itd.Δxy - LDL\pad.rhs))
+        println(norm(Symmetric(pad.K, :U) * itd.Δxy - pad.rhs))
     end
     return 0
 end
@@ -103,13 +94,10 @@ function update_pad!(pad :: PreallocatedData_K2minres{T}, dda :: DescentDirectio
     pad.D[pad.diag_Q.nzind] .-= pad.diag_Q.nzval
     pad.K.nzval[view(pad.diagind_K,1:id.nvar)] = pad.D 
 
-    Krows, Kcols, Kvals = findnz(pad.K)
-    Kl = sparse(Kcols, Krows, Kvals)
-    pad.LLDL = lldl(Kl, collect(1: id.nvar+id.ncon), memory=20)
-    pad.opiLLDL = opilldl(pad.LLDL, pad.y_opiLLDL)
-    # pad.opiLLDL = ildl(Kl, memory=20)
+    update_preconditioner!(pad.pdat, pad, itd, pt, id)
     
-    pad.opK = PreallocatedLinearOperator(pad.y_opK, Symmetric(pad.K, :U))
+    # pad.opK = PreallocatedLinearOperator(pad.y_opK, Symmetric(pad.K, :U))
+    pad.opK = PreallocatedLinearOperator(pad.y_opK, Symmetric(pad.K+pad.K'-Diagonal(pad.K), :U))
 
     return 0
 end
