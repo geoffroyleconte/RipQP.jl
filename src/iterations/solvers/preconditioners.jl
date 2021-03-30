@@ -12,7 +12,7 @@ function Jacobi(id :: QM_IntData, regu :: Regularization{T}, D :: Vector{T}, K::
 end 
 
 function update_preconditioner!(pdat :: JacobiData{T}, pad :: PreallocatedData{T}, itd :: IterData{T}, 
-                                pt :: Point{T}, id :: QM_IntData) where {T<:Real}
+                                pt :: Point{T}, id :: QM_IntData, cnts :: Counters) where {T<:Real}
 
     # pad.pdat.invDiagK[1:id.nvar] .= .-one(T) ./ pad.D 
     # pad.pdat.invDiagK[id.ilow] ./= itd.x_m_lvar
@@ -38,7 +38,7 @@ function LLDL(id :: QM_IntData, regu :: Regularization{T}, D :: Vector{T}, K :: 
 end 
 
 function update_preconditioner!(pdat :: LLDLData{T}, pad :: PreallocatedData{T}, itd :: IterData{T}, 
-                                pt :: Point{T}, id :: QM_IntData) where {T<:Real}
+                                pt :: Point{T}, id :: QM_IntData, cnts :: Counters) where {T<:Real}
 
     Krows, Kcols, Kvals = findnz(pad.K)
     Kl = sparse(Kcols, Krows, Kvals)
@@ -131,7 +131,7 @@ end
 # end 
 
 function update_preconditioner!(pdat :: ActiveCLDLData{T}, pad :: PreallocatedData{T}, itd :: IterData{T}, 
-                                pt :: Point{T}, id :: QM_IntData) where {T<:Real}
+                                pt :: Point{T}, id :: QM_IntData, cnts :: Counters) where {T<:Real}
 
     pad.pdat.Kp.nzval .= pad.K.nzval
     check_active_constr!(pad.pdat.i_active, itd.x_m_lvar, itd.uvar_m_x, itd.μ, id.ilow, id.iupp, id.nlow, id.nupp, id.nvar, T) 
@@ -139,13 +139,31 @@ function update_preconditioner!(pdat :: ActiveCLDLData{T}, pad :: PreallocatedDa
     remove_active_constr!(pad.pdat.Kp.colptr, pad.pdat.Kp.rowval, pad.pdat.Kp.nzval, itd.x_m_lvar, itd.uvar_m_x, pt.s_l, pt.s_u, 
                           pad.regu.ρ, pad.pdat.i_active, id.ilow, id.iupp, id.nlow, id.nupp, id.nvar, id.ncon, T)
 
-    Amax = @views norm(pad.pdat.Kp.nzval[pad.diagind_K], Inf)
-    pad.regu.ρ, pad.regu.δ = T(eps(T)^(3/4)), T(eps(T)^(0.45))
-    pad.pdat.LDL.r1, pad.pdat.LDL.r2 = -pad.regu.ρ, pad.regu.δ
-    pad.pdat.LDL.tol = min(Amax*T(eps(T)), T(eps(T)))
-    pad.pdat.LDL.n_d = id.nvar
+    # Amax = @views norm(pad.pdat.Kp.nzval[pad.diagind_K], Inf)
+    # pad.regu.ρ, pad.regu.δ = T(eps(T)^(3/4)), T(eps(T)^(0.45))
+    # pad.pdat.LDL.r1, pad.pdat.LDL.r2 = -pad.regu.ρ, pad.regu.δ
+    # pad.pdat.LDL.tol = Amax*T(eps(T))
+    # pad.pdat.LDL.n_d = id.nvar
 
     ldl_factorize!(Symmetric(pad.pdat.Kp, :U), pad.pdat.LDL) 
+    while !factorized(pad.pdat.LDL)
+        println("error fact")
+        out = update_regu_trycatch!(pad.regu, cnts, T, T)
+        out == 1 && return out
+        cnts.c_catch += 1
+        cnts.c_catch >= 4 && return 1
+        # pad.D .= -pad.regu.ρ
+        # D[ilow] .-= s_l ./ x_m_lvar
+        # D[iupp] .-= s_u ./ uvar_m_x
+        # D[diag_Q.nzind] .-= diag_Q.nzval
+        pad.pdat.Kp.nzval[view(pad.diagind_K,1: id.nvar)] .-= pad.regu.ρ
+        pad.pdat.Kp.nzval[view(pad.diagind_K, id.nvar+1: id.ncon+id.nvar)] .= pad.regu.δ
+        pad.K.nzval[view(pad.diagind_K,1: id.nvar)] .-= pad.regu.ρ
+        pad.K.nzval[view(pad.diagind_K, id.nvar+1: id.ncon+id.nvar)] .= pad.regu.δ
+        println(norm(pad.K.nzval[pad.diagind_K] - pad.pdat.Kp.nzval[pad.diagind_K]))
+        ldl_factorize!(Symmetric(pad.pdat.Kp, :U), pad.pdat.LDL)
+    end
+    println("norm diff prec", norm(pdat.Kp - pad.K))
     pad.pdat.LDL.d .= abs.(pad.pdat.LDL.d)
     # display(Matrix(pad.pdat.Kp))
 

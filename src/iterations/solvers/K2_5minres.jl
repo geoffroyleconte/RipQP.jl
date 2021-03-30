@@ -84,7 +84,7 @@ function solver!(pad :: PreallocatedData_K2_5minres{T}, dda :: DescentDirectionA
         dda.Δxy_aff .= pad.MS.x
         # ldiv!(dda.Δxy_aff, LDL, pad.rhs)
         dda.Δxy_aff[1:id.nvar] .*= pad.D
-        println(norm(Symmetric(pad.K, :U) * dda.Δxy_aff - pad.rhs))
+        println(norm(Symmetric(pad.K, :U) * dda.Δxy_aff - pad.rhs) / norm(pad.rhs))
     
     else
         if pad.K_scaled
@@ -100,10 +100,11 @@ function solver!(pad :: PreallocatedData_K2_5minres{T}, dda :: DescentDirectionA
             itd.Δxy .= pad.MS.x
             # ldiv!(itd.Δxy, LDL, pad.rhs)
         end
-        println(norm(Symmetric(pad.K, :U) * itd.Δxy - pad.rhs))
+        println(norm(Symmetric(pad.K, :U) * itd.Δxy - pad.rhs) / norm(pad.rhs))
     end
 
     if (step == :cc || step == :IPF) && pad.K_scaled
+
         pad.D .= one(T) 
         pad.D[id.ilow] ./= sqrt.(itd.x_m_lvar)
         pad.D[id.iupp] ./= sqrt.(itd.uvar_m_x)
@@ -136,7 +137,7 @@ function update_pad!(pad :: PreallocatedData_K2_5minres{T}, dda :: DescentDirect
     # pad.K.nzval[view(pad.diagind_K,1:id.nvar)] .-= pad.regu.ρ 
 
     pad.K_scaled = true
-    update_preconditioner!(pad.pdat, pad, itd, pt, id)
+    update_preconditioner!(pad.pdat, pad, itd, pt, id, cnts)
     # test = Symmetric(pad.K, :U) * Diagonal(pad.pdat.invDiagK)
     # println(test[diagind(test)])
 

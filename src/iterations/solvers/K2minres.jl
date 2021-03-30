@@ -94,7 +94,7 @@ function update_pad!(pad :: PreallocatedData_K2minres{T}, dda :: DescentDirectio
     pad.D[pad.diag_Q.nzind] .-= pad.diag_Q.nzval
     pad.K.nzval[view(pad.diagind_K,1:id.nvar)] = pad.D 
 
-    update_preconditioner!(pad.pdat, pad, itd, pt, id)
+    update_preconditioner!(pad.pdat, pad, itd, pt, id, cnts)
     
     # pad.opK = PreallocatedLinearOperator(pad.y_opK, Symmetric(pad.K, :U))
     pad.opK = PreallocatedLinearOperator(pad.y_opK, Symmetric(pad.K+pad.K'-Diagonal(pad.K), :U))
