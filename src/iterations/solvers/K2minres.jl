@@ -6,7 +6,7 @@ struct K2minresParams <: SolverParams
     rtol :: Float64
 end
 
-function K2minresParams(; preconditioner = :LLDLData, atol :: T = 1.0e-6, rtol :: T = 1.0e-6) where {T<:Real} 
+function K2minresParams(; preconditioner = :LLDL, atol :: T = 1.0e-6, rtol :: T = 1.0e-6) where {T<:Real} 
     return K2minresParams(preconditioner, atol, rtol)
 end
 

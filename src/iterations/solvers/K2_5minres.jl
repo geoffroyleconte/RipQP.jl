@@ -7,7 +7,7 @@ struct K2_5minresParams <: SolverParams
     conlim            :: Float64
 end
 
-function K2_5minresParams(; preconditioner :: Symbol = :JacobiData, atol :: T = 1.0e-6, rtol :: T = 1.0e-6,
+function K2_5minresParams(; preconditioner :: Symbol = :Jacobi, atol :: T = 1.0e-6, rtol :: T = 1.0e-6,
                           conlim :: Float64 = 1.0e-6) where {T<:Real} 
     return K2_5minresParams(preconditioner, atol, rtol, conlim)
 end

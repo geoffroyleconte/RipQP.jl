@@ -4,7 +4,7 @@ mutable struct JacobiData{T<:Real} <: PreconditionerDataK2{T}
     invDiagK :: Vector{T}
 end
 
-function JacobiData(id :: QM_IntData, regu :: Regularization{T}, D :: Vector{T}, K::SparseMatrixCSC{T, Int}) where {T<:Real} 
+function Jacobi(id :: QM_IntData, regu :: Regularization{T}, D :: Vector{T}, K::SparseMatrixCSC{T, Int}) where {T<:Real} 
     invDiagK = (one(T)/regu.δ) .* ones(T, id.nvar+id.ncon)
     invDiagK[1:id.nvar] .= .-one(T) ./ D
     P = opDiagonal(invDiagK)
@@ -27,7 +27,7 @@ mutable struct LLDLData{T<:Real} <: PreconditionerDataK2{T}
     y_opiLLDL        :: Vector{T}
 end
 
-function LLDLData(id :: QM_IntData, regu :: Regularization{T}, D :: Vector{T}, K :: SparseMatrixCSC{T, Int}) where {T<:Real}
+function LLDL(id :: QM_IntData, regu :: Regularization{T}, D :: Vector{T}, K :: SparseMatrixCSC{T, Int}) where {T<:Real}
     
     Krows, Kcols, Kvals = findnz(K)
     Kl = sparse(Kcols, Krows, Kvals)
@@ -53,7 +53,7 @@ mutable struct ActiveCLDLData{T<:Real} <: PreconditionerDataK2{T}
     i_active        :: Vector{Bool}
 end
 
-function ActiveCLDLData(id :: QM_IntData, regu :: Regularization{T}, D :: Vector{T}, K :: SparseMatrixCSC{T, Int}) where {T<:Real}
+function ActiveCLDL(id :: QM_IntData, regu :: Regularization{T}, D :: Vector{T}, K :: SparseMatrixCSC{T, Int}) where {T<:Real}
     
     Kp = copy(K)
     LDL = ldl_analyze(Symmetric(K, :U))
@@ -78,7 +78,6 @@ function check_active_constr!(i_active, x_m_lvar, uvar_m_x, s_l, s_u, μ, nvar, 
 end
 
 function remove_active_constr!(K_colptr, K_rowval, K_nzval, i_active, nvar, ncon, T)
-    
     for j=1:nvar+ncon
         for k=K_colptr[j]: K_colptr[j+1]-1
             i = K_rowval[k]

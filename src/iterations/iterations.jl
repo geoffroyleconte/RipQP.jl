@@ -1,7 +1,7 @@
 include("solve_method.jl")
 include("centrality_corr.jl")
 include("regularization.jl")
-include("solvers/preconditioner.jl")
+include("solvers/preconditioners.jl")
 include("solvers/K2LDL.jl")
 include("solvers/K2_5LDL.jl")
 include("solvers/K2minres.jl")
