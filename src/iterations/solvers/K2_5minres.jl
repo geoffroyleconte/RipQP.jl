@@ -36,7 +36,7 @@ function PreallocatedData(sp :: K2_5minresParams, fd :: QM_FloatData{T}, id :: Q
 
     # init Regularization values
     if iconf.mode == :mono
-        regu = Regularization(T(sqrt(eps())*1e5), T(sqrt(eps())*1e5), T(1e0*sqrt(eps(T))), T(1e0*sqrt(eps(T))), :classic)
+        regu = Regularization(T(sqrt(eps())*1e5), T(sqrt(eps())*1e5), T(1e-5*sqrt(eps(T))), T(1e0*sqrt(eps(T))), :classic)
         D = -T(1.0e0)/2 .* ones(T, id.nvar)
     else
         regu = Regularization(T(sqrt(eps())*1e5), T(sqrt(eps())*1e5), T(sqrt(eps(T))*1e0), T(sqrt(eps(T))*1e0), :classic)
@@ -76,11 +76,13 @@ function solver!(pad :: PreallocatedData_K2_5minres{T}, dda :: DescentDirectionA
                  step :: Symbol) where {T<:Real} 
 
     # erase dda.Δxy_aff only for affine predictor step with PC method
+    # LDL = ldl(Symmetric(pad.K, :U))
     if step == :aff 
         pad.rhs[1:id.nvar] .= @views dda.Δxy_aff[1:id.nvar] .* pad.D
         pad.rhs[id.nvar+1: end] .= @views dda.Δxy_aff[id.nvar+1: end]
         (pad.MS.x, pad.MS.stats) = minres!(pad.MS, pad.opK, pad.rhs, M=pad.P)
         dda.Δxy_aff .= pad.MS.x
+        # ldiv!(dda.Δxy_aff, LDL, pad.rhs)
         dda.Δxy_aff[1:id.nvar] .*= pad.D
         println(norm(Symmetric(pad.K, :U) * dda.Δxy_aff - pad.rhs))
     
@@ -90,11 +92,13 @@ function solver!(pad :: PreallocatedData_K2_5minres{T}, dda :: DescentDirectionA
             pad.rhs[id.nvar+1: end] .= @views itd.Δxy[id.nvar+1: end]
             (pad.MS.x, pad.MS.stats) = minres!(pad.MS, pad.opK, pad.rhs, M=pad.P)
             itd.Δxy .= pad.MS.x
+            # ldiv!(itd.Δxy, LDL, pad.rhs)
             itd.Δxy[1:id.nvar] .*= pad.D
         else
             pad.rhs .= itd.Δxy
             (pad.MS.x, pad.MS.stats) = minres!(pad.MS, pad.opK, pad.rhs, M=pad.P)
             itd.Δxy .= pad.MS.x
+            # ldiv!(itd.Δxy, LDL, pad.rhs)
         end
         println(norm(Symmetric(pad.K, :U) * itd.Δxy - pad.rhs))
     end
@@ -117,25 +121,20 @@ function update_pad!(pad :: PreallocatedData_K2_5minres{T}, dda :: DescentDirect
         update_regu!(pad.regu) 
     end
 
-    # pad.D .= -pad.regu.ρ
+    pad.D .= -pad.regu.ρ 
     pad.K.nzval[view(pad.diagind_K, id.nvar+1:id.ncon+id.nvar)] .= pad.regu.δ
     pad.D[id.ilow] .-= pt.s_l ./ itd.x_m_lvar
     pad.D[id.iupp] .-= pt.s_u ./ itd.uvar_m_x
     pad.D[pad.diag_Q.nzind] .-= pad.diag_Q.nzval
-    pad.K.nzval[view(pad.diagind_K,1:id.nvar)] = pad.D 
-
-    # pad.invDiagK[1:id.nvar] .= .-one(T) ./ pad.D 
-    # pad.invDiagK[id.nvar+1:end] .= pad.regu.δ 
+    pad.K.nzval[view(pad.diagind_K,1:id.nvar)] = pad.D
 
     # scale K
     pad.D .= one(T)
     pad.D[id.ilow] .*= sqrt.(itd.x_m_lvar)
     pad.D[id.iupp] .*= sqrt.(itd.uvar_m_x)
-    lrmultilply_J!(pad.K.colptr, pad.K.rowval, pad.K.nzval, pad.D, id.nvar)
+    lrmultilply_J!(pad.K.colptr, pad.K.rowval, pad.K.nzval, pad.D, id.nvar) 
+    # pad.K.nzval[view(pad.diagind_K,1:id.nvar)] .-= pad.regu.ρ 
 
-    pad.K.nzval[view(pad.diagind_K,1:id.nvar)] .-= pad.regu.ρ 
-
-    # pad.invDiagK[1:id.nvar] ./= pad.D.^2
     pad.K_scaled = true
     update_preconditioner!(pad.pdat, pad, itd, pt, id)
     # test = Symmetric(pad.K, :U) * Diagonal(pad.pdat.invDiagK)

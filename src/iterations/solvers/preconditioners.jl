@@ -31,7 +31,7 @@ function LLDL(id :: QM_IntData, regu :: Regularization{T}, D :: Vector{T}, K :: 
     
     Krows, Kcols, Kvals = findnz(K)
     Kl = sparse(Kcols, Krows, Kvals)
-    LLDL = lldl(Kl, memory=20)
+    LLDL = lldl(Kl, memory=40)
     y_opiLLDL = zeros(T, id.nvar+id.ncon)
     P = opilldl(LLDL, y_opiLLDL)
     return LLDLData{T}(LLDL, y_opiLLDL), P
@@ -56,43 +56,98 @@ end
 function ActiveCLDL(id :: QM_IntData, regu :: Regularization{T}, D :: Vector{T}, K :: SparseMatrixCSC{T, Int}) where {T<:Real}
     
     Kp = copy(K)
-    LDL = ldl_analyze(Symmetric(K, :U))
+    LDL = ldl_analyze(Symmetric(Kp, :U))
     i_active = fill(false, id.nvar)
-    ldl_factorize!(Symmetric(K, :U), LDL)
+    ldl_factorize!(Symmetric(Kp, :U), LDL)
     y_opiLDL = zeros(T, id.nvar + id.ncon)
-    LDL.D = abs.(LDL.D)
-    P = LinearOperator(T, n, n, true, true, v -> ldiv!(y_opiLDL, LDL, v))
+    LDL.d = abs.(LDL.d)
+    P = LinearOperator(T, id.nvar + id.ncon, id.nvar + id.ncon, true, true, v -> ldiv!(y_opiLDL, LDL, v))
 
-    return ActiveCLDLData{T}(Kp, LDL, y_opiLLDL, i_active), P
+    return ActiveCLDLData{T}(Kp, LDL, y_opiLDL, i_active), P
 end 
 
-function check_active_constr!(i_active, x_m_lvar, uvar_m_x, s_l, s_u, μ, nvar, T)  
-    β = T(0.1)
-    @inbounds @simd for i=1:nvar
-        if min(x_m_lvar, uvar_m_x) ≤ μ^(1-β) 
-            i_active = true 
-        else
-            i_active = false
+function check_active_constr!(i_active, x_m_lvar, uvar_m_x, μ, ilow, iupp, nlow, nupp, nvar, T)  
+    β = T(0.01)
+    tol_active = min(μ^(1-β), one(T)) 
+    c_low, c_upp = 1, 1
+    for i=1:nvar
+        if c_low < nlow && ilow[c_low] < i
+            c_low += 1
+        end
+        if c_upp < nupp && iupp[c_upp] < i
+            c_upp += 1
+        end
+        if c_low ≤ nlow && ilow[c_low] == i && c_upp ≤ nupp && iupp[c_upp] == i && min(x_m_lvar[c_low], uvar_m_x[c_upp]) ≤ tol_active
+            i_active[i] = true 
+        elseif c_low ≤ nlow && ilow[c_low] == i && x_m_lvar[c_low] ≤ tol_active
+            i_active[i] = true 
+        elseif c_upp ≤ nupp && iupp[c_upp] == i && uvar_m_x[c_upp] ≤ tol_active
+            i_active[i] = true
+        else 
+            i_active[i] = false
         end
     end
+    println(sum(i_active))
 end
 
-function remove_active_constr!(K_colptr, K_rowval, K_nzval, i_active, nvar, ncon, T)
+function remove_active_constr!(K_colptr, K_rowval, K_nzval, x_m_lvar, uvar_m_x, s_l, s_u, ρ, i_active, ilow, iupp, nlow, nupp, 
+                               nvar, ncon, T)
+
+    c_low, c_upp = 1, 1
     for j=1:nvar+ncon
+        if c_low < nlow && ilow[c_low] < j
+            c_low += 1
+        end
+        if c_upp < nupp && iupp[c_upp] < j
+            c_upp += 1
+        end
         for k=K_colptr[j]: K_colptr[j+1]-1
             i = K_rowval[k]
-            if i_active[i]
-                K_nzval[k] = zero(T)
+            if i ≤ nvar
+                if i != j && i_active[i]
+                    K_nzval[k] = zero(T)
+                elseif i != j && j ≤ nvar && i_active[j]
+                    K_nzval[k] = zero(T)
+                elseif i == j && i_active[i]
+                    if c_low ≤ nlow && ilow[c_low] == i && c_upp ≤ nupp && iupp[c_upp] == i
+                        K_nzval[k] = -s_l[c_low] * uvar_m_x[c_upp] - s_u[c_upp] * x_m_lvar[c_low] - ρ 
+                    elseif c_low ≤ nlow && ilow[c_low] == i
+                        K_nzval[k] = -s_l[c_low] - ρ
+                    elseif c_upp ≤ nupp && iupp[c_upp] == i
+                        K_nzval[k] = -s_u[c_upp] - ρ
+                    end
+                end
             end
         end
     end
 end
 
-function update_preconditioner!(pdat :: LLDLData{T}, pad :: PreallocatedData{T}, itd :: IterData{T}, 
+# function remove_active_constr!(D, i_active, nvar)
+#     for i=1:nvar 
+#         if i_active == true
+#             D[i] = 0
+#         end
+#     end
+# end 
+
+function update_preconditioner!(pdat :: ActiveCLDLData{T}, pad :: PreallocatedData{T}, itd :: IterData{T}, 
                                 pt :: Point{T}, id :: QM_IntData) where {T<:Real}
 
-    check_active_constr!(pad.pdat.i_active, itd.x_m_lvar, itd.uvar_m_x, pt.s_l, pt.s_u, itd.μ, id.nvar, T) 
+    pad.pdat.Kp.nzval .= pad.K.nzval
+    check_active_constr!(pad.pdat.i_active, itd.x_m_lvar, itd.uvar_m_x, itd.μ, id.ilow, id.iupp, id.nlow, id.nupp, id.nvar, T) 
+    # remove_active_constr!(D, i_active, nvar)
+    remove_active_constr!(pad.pdat.Kp.colptr, pad.pdat.Kp.rowval, pad.pdat.Kp.nzval, itd.x_m_lvar, itd.uvar_m_x, pt.s_l, pt.s_u, 
+                          pad.regu.ρ, pad.pdat.i_active, id.ilow, id.iupp, id.nlow, id.nupp, id.nvar, id.ncon, T)
 
+    Amax = @views norm(pad.pdat.Kp.nzval[pad.diagind_K], Inf)
+    pad.regu.ρ, pad.regu.δ = T(eps(T)^(3/4)), T(eps(T)^(0.45))
+    pad.pdat.LDL.r1, pad.pdat.LDL.r2 = -pad.regu.ρ, pad.regu.δ
+    pad.pdat.LDL.tol = min(Amax*T(eps(T)), T(eps(T)))
+    pad.pdat.LDL.n_d = id.nvar
 
-    ldl_factorize!(Symmetric(K, :U), LDL)                            
+    ldl_factorize!(Symmetric(pad.pdat.Kp, :U), pad.pdat.LDL) 
+    pad.pdat.LDL.d .= abs.(pad.pdat.LDL.d)
+    # display(Matrix(pad.pdat.Kp))
+
+    pad.P = LinearOperator(T, id.ncon+id.nvar, id.ncon+id.nvar, true, true, v -> ldiv!(pad.pdat.y_opiLDL, pad.pdat.LDL, v))                           
 end
