@@ -87,7 +87,7 @@ function check_active_constr!(i_active, x_m_lvar, uvar_m_x, μ, ilow, iupp, nlow
             i_active[i] = false
         end
     end
-    println(sum(i_active))
+    # println(sum(i_active))
 end
 
 function remove_active_constr!(K_colptr, K_rowval, K_nzval, x_m_lvar, uvar_m_x, s_l, s_u, ρ, i_active, ilow, iupp, nlow, nupp, 
@@ -160,12 +160,26 @@ function update_preconditioner!(pdat :: ActiveCLDLData{T}, pad :: PreallocatedDa
         pad.pdat.Kp.nzval[view(pad.diagind_K, id.nvar+1: id.ncon+id.nvar)] .= pad.regu.δ
         pad.K.nzval[view(pad.diagind_K,1: id.nvar)] .-= pad.regu.ρ
         pad.K.nzval[view(pad.diagind_K, id.nvar+1: id.ncon+id.nvar)] .= pad.regu.δ
-        println(norm(pad.K.nzval[pad.diagind_K] - pad.pdat.Kp.nzval[pad.diagind_K]))
+        # println(norm(pad.K.nzval[pad.diagind_K] - pad.pdat.Kp.nzval[pad.diagind_K]))
         ldl_factorize!(Symmetric(pad.pdat.Kp, :U), pad.pdat.LDL)
     end
-    println("norm diff prec", norm(pdat.Kp - pad.K))
+    # println("norm diff prec", norm(pdat.Kp - pad.K))
     pad.pdat.LDL.d .= abs.(pad.pdat.LDL.d)
     # display(Matrix(pad.pdat.Kp))
+    pad.P = LinearOperator(T, id.ncon+id.nvar, id.ncon+id.nvar, true, true, v -> ldiv!(pad.pdat.y_opiLDL, pad.pdat.LDL, v)) 
+    Minv = invop(pad.P, T, id.ncon+id.nvar)
+    # eigs = real.(eigvals(Matrix(Minv * Symmetric(pad.K,:U))))
+    # println(unique(trunc.(eigs, digits = 2)))  
+    # println("||K|| ", norm(Symmetric(pad.K, :U)))                   
+end
 
-    pad.P = LinearOperator(T, id.ncon+id.nvar, id.ncon+id.nvar, true, true, v -> ldiv!(pad.pdat.y_opiLDL, pad.pdat.LDL, v))                           
+function invop(M, T, n)
+    ei = zeros(T, n)
+    Minv = zeros(T, n, n)
+    for i=1:n
+        ei[i] = one(T)
+        Minv[:, i] = M * ei 
+        ei[i] = zero(T)
+    end
+    return Minv 
 end

@@ -80,27 +80,36 @@ function solver!(pad :: PreallocatedData_K2_5minres{T}, dda :: DescentDirectionA
     if step == :aff 
         pad.rhs[1:id.nvar] .= @views dda.Δxy_aff[1:id.nvar] .* pad.D
         pad.rhs[id.nvar+1: end] .= @views dda.Δxy_aff[id.nvar+1: end]
-        (pad.MS.x, pad.MS.stats) = minres!(pad.MS, pad.opK, pad.rhs, M=pad.P)
+        rhsNorm = norm(pad.rhs)
+        pad.rhs ./= rhsNorm
+        (pad.MS.x, pad.MS.stats) = minres!(pad.MS, pad.opK, pad.rhs, M=pad.P, verbose=0)#, atol=zero(T), rtol=zero(T))
+        pad.MS.x .*= rhsNorm
         dda.Δxy_aff .= pad.MS.x
         # ldiv!(dda.Δxy_aff, LDL, pad.rhs)
+        # println(norm(Symmetric(pad.K, :U) * dda.Δxy_aff - pad.rhs.*rhsNorm) / rhsNorm)
+        # println("norm rhs = ", norm(pad.rhs))
         dda.Δxy_aff[1:id.nvar] .*= pad.D
-        println(norm(Symmetric(pad.K, :U) * dda.Δxy_aff - pad.rhs) / norm(pad.rhs))
+        
     
     else
         if pad.K_scaled
             pad.rhs[1:id.nvar] .= @views itd.Δxy[1:id.nvar] .* pad.D
             pad.rhs[id.nvar+1: end] .= @views itd.Δxy[id.nvar+1: end]
-            (pad.MS.x, pad.MS.stats) = minres!(pad.MS, pad.opK, pad.rhs, M=pad.P)
+            rhsNorm = norm(pad.rhs)
+            pad.rhs ./= rhsNorm
+            (pad.MS.x, pad.MS.stats) = minres!(pad.MS, pad.opK, pad.rhs, M=pad.P, verbose=0)#, atol=zero(T), rtol=zero(T))
+            pad.MS.x .*= rhsNorm
             itd.Δxy .= pad.MS.x
+            # println(norm(Symmetric(pad.K, :U) * itd.Δxy - pad.rhs.*rhsNorm) / rhsNorm)
+            # println("norm rhs = ", norm(pad.rhs))
             # ldiv!(itd.Δxy, LDL, pad.rhs)
             itd.Δxy[1:id.nvar] .*= pad.D
         else
             pad.rhs .= itd.Δxy
-            (pad.MS.x, pad.MS.stats) = minres!(pad.MS, pad.opK, pad.rhs, M=pad.P)
+            (pad.MS.x, pad.MS.stats) = minres!(pad.MS, pad.opK, pad.rhs, M=pad.P)#, atol=zero(T), rtol=zero(T))
             itd.Δxy .= pad.MS.x
             # ldiv!(itd.Δxy, LDL, pad.rhs)
         end
-        println(norm(Symmetric(pad.K, :U) * itd.Δxy - pad.rhs) / norm(pad.rhs))
     end
 
     if (step == :cc || step == :IPF) && pad.K_scaled
