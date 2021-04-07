@@ -87,7 +87,7 @@ function check_active_constr!(i_active, x_m_lvar, uvar_m_x, μ, ilow, iupp, nlow
             i_active[i] = false
         end
     end
-    # println(sum(i_active))
+    println(sum(i_active))
 end
 
 function remove_active_constr!(K_colptr, K_rowval, K_nzval, x_m_lvar, uvar_m_x, s_l, s_u, ρ, i_active, ilow, iupp, nlow, nupp, 

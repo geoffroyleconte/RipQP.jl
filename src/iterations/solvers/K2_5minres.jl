@@ -82,7 +82,7 @@ function solver!(pad :: PreallocatedData_K2_5minres{T}, dda :: DescentDirectionA
         pad.rhs[id.nvar+1: end] .= @views dda.Δxy_aff[id.nvar+1: end]
         rhsNorm = norm(pad.rhs)
         pad.rhs ./= rhsNorm
-        (pad.MS.x, pad.MS.stats) = minres!(pad.MS, pad.opK, pad.rhs, M=pad.P, verbose=0)#, atol=zero(T), rtol=zero(T))
+        (pad.MS.x, pad.MS.stats) = minres!(pad.MS, pad.opK, pad.rhs, M=pad.P, verbose=0, atol=zero(T), rtol=zero(T))
         pad.MS.x .*= rhsNorm
         dda.Δxy_aff .= pad.MS.x
         # ldiv!(dda.Δxy_aff, LDL, pad.rhs)
@@ -97,7 +97,7 @@ function solver!(pad :: PreallocatedData_K2_5minres{T}, dda :: DescentDirectionA
             pad.rhs[id.nvar+1: end] .= @views itd.Δxy[id.nvar+1: end]
             rhsNorm = norm(pad.rhs)
             pad.rhs ./= rhsNorm
-            (pad.MS.x, pad.MS.stats) = minres!(pad.MS, pad.opK, pad.rhs, M=pad.P, verbose=0)#, atol=zero(T), rtol=zero(T))
+            (pad.MS.x, pad.MS.stats) = minres!(pad.MS, pad.opK, pad.rhs, M=pad.P, verbose=0, atol=zero(T), rtol=zero(T))
             pad.MS.x .*= rhsNorm
             itd.Δxy .= pad.MS.x
             # println(norm(Symmetric(pad.K, :U) * itd.Δxy - pad.rhs.*rhsNorm) / rhsNorm)
@@ -106,7 +106,7 @@ function solver!(pad :: PreallocatedData_K2_5minres{T}, dda :: DescentDirectionA
             itd.Δxy[1:id.nvar] .*= pad.D
         else
             pad.rhs .= itd.Δxy
-            (pad.MS.x, pad.MS.stats) = minres!(pad.MS, pad.opK, pad.rhs, M=pad.P)#, atol=zero(T), rtol=zero(T))
+            (pad.MS.x, pad.MS.stats) = minres!(pad.MS, pad.opK, pad.rhs, M=pad.P, atol=zero(T), rtol=zero(T))
             itd.Δxy .= pad.MS.x
             # ldiv!(itd.Δxy, LDL, pad.rhs)
         end
