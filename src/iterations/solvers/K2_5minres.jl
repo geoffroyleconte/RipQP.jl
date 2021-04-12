@@ -36,7 +36,7 @@ function PreallocatedData(sp :: K2_5minresParams, fd :: QM_FloatData{T}, id :: Q
 
     # init Regularization values
     if iconf.mode == :mono
-        regu = Regularization(T(sqrt(eps())*1e5), T(sqrt(eps())*1e5), T(1e-5*sqrt(eps(T))), T(1e0*sqrt(eps(T))), :classic)
+        regu = Regularization(T(sqrt(eps())*1e5), T(sqrt(eps())*1e5), T(1e3*sqrt(eps(T))), T(1e4*sqrt(eps(T))), :classic)
         D = -T(1.0e0)/2 .* ones(T, id.nvar)
     else
         regu = Regularization(T(sqrt(eps())*1e5), T(sqrt(eps())*1e5), T(sqrt(eps(T))*1e0), T(sqrt(eps(T))*1e0), :classic)
@@ -117,6 +117,12 @@ function solver!(pad :: PreallocatedData_K2_5minres{T}, dda :: DescentDirectionA
 
     if (step == :cc || step == :IPF) && pad.K_scaled
 
+        out = 0
+        if pad.regu.regul == :classic # update ρ and δ values, check K diag magnitude 
+            # out = update_regu_diagK2_5!(pad.regu, pad.D, itd.pdd, itd.l_pdd, itd.mean_pdd, cnts, T, T0) 
+            update_regu!(pad.regu)
+        end
+
         pad.D .= one(T) 
         pad.D[id.ilow] ./= sqrt.(itd.x_m_lvar)
         pad.D[id.iupp] ./= sqrt.(itd.uvar_m_x)
@@ -130,12 +136,12 @@ end
 function update_pad!(pad :: PreallocatedData_K2_5minres{T}, dda :: DescentDirectionAllocs{T}, pt :: Point{T}, itd :: IterData{T}, 
                      fd :: Abstract_QM_FloatData{T}, id :: QM_IntData, res :: Residuals{T}, cnts :: Counters, T0 :: DataType) where {T<:Real}
 
-    if cnts.k != 0
-        update_regu!(pad.regu) 
-    end
-
-    pad.D .= -pad.regu.ρ 
-    pad.K.nzval[view(pad.diagind_K, id.nvar+1:id.ncon+id.nvar)] .= pad.regu.δ
+    if pad.regu.regul == :classic
+        pad.D .= -pad.regu.ρ 
+        pad.K.nzval[view(pad.diagind_K, id.nvar+1:id.ncon+id.nvar)] .= pad.regu.δ
+    else
+        pad.D .= zero(T)
+    end 
     pad.D[id.ilow] .-= pt.s_l ./ itd.x_m_lvar
     pad.D[id.iupp] .-= pt.s_u ./ itd.uvar_m_x
     pad.D[pad.diag_Q.nzind] .-= pad.diag_Q.nzval

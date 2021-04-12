@@ -58,6 +58,12 @@ function ActiveCLDL(id :: QM_IntData, regu :: Regularization{T}, D :: Vector{T},
     Kp = copy(K)
     LDL = ldl_analyze(Symmetric(Kp, :U))
     i_active = fill(false, id.nvar)
+    if regu.regul == :dynamic
+        regu.ρ, regu.δ = -T(eps(T)^(3/4)), T(eps(T)^(0.45))
+        LDL.r1, LDL.r2 = regu.ρ, regu.δ
+        LDL.tol = T(eps(T))
+        LDL.n_d = id.nvar
+    end
     ldl_factorize!(Symmetric(Kp, :U), LDL)
     y_opiLDL = zeros(T, id.nvar + id.ncon)
     LDL.d = abs.(LDL.d)
@@ -87,7 +93,7 @@ function check_active_constr!(i_active, x_m_lvar, uvar_m_x, μ, ilow, iupp, nlow
             i_active[i] = false
         end
     end
-    println(sum(i_active))
+    # println(sum(i_active))
 end
 
 function remove_active_constr!(K_colptr, K_rowval, K_nzval, x_m_lvar, uvar_m_x, s_l, s_u, ρ, i_active, ilow, iupp, nlow, nupp, 
@@ -110,11 +116,11 @@ function remove_active_constr!(K_colptr, K_rowval, K_nzval, x_m_lvar, uvar_m_x, 
                     K_nzval[k] = zero(T)
                 elseif i == j && i_active[i]
                     if c_low ≤ nlow && ilow[c_low] == i && c_upp ≤ nupp && iupp[c_upp] == i
-                        K_nzval[k] = -s_l[c_low] * uvar_m_x[c_upp] - s_u[c_upp] * x_m_lvar[c_low] - ρ 
+                        K_nzval[k] = -s_l[c_low] * uvar_m_x[c_upp] - s_u[c_upp] * x_m_lvar[c_low] - ρ #* uvar_m_x[c_upp] * x_m_lvar[c_low] 
                     elseif c_low ≤ nlow && ilow[c_low] == i
-                        K_nzval[k] = -s_l[c_low] - ρ
+                        K_nzval[k] = -s_l[c_low] - ρ #* x_m_lvar[c_low] 
                     elseif c_upp ≤ nupp && iupp[c_upp] == i
-                        K_nzval[k] = -s_u[c_upp] - ρ
+                        K_nzval[k] = -s_u[c_upp] - ρ #* uvar_m_x[c_upp]
                     end
                 end
             end
@@ -136,14 +142,23 @@ function update_preconditioner!(pdat :: ActiveCLDLData{T}, pad :: PreallocatedDa
     pad.pdat.Kp.nzval .= pad.K.nzval
     check_active_constr!(pad.pdat.i_active, itd.x_m_lvar, itd.uvar_m_x, itd.μ, id.ilow, id.iupp, id.nlow, id.nupp, id.nvar, T) 
     # remove_active_constr!(D, i_active, nvar)
+    ρ = pad.regu.regul == :classic ? pad.regu.ρ : zero(T)
     remove_active_constr!(pad.pdat.Kp.colptr, pad.pdat.Kp.rowval, pad.pdat.Kp.nzval, itd.x_m_lvar, itd.uvar_m_x, pt.s_l, pt.s_u, 
-                          pad.regu.ρ, pad.pdat.i_active, id.ilow, id.iupp, id.nlow, id.nupp, id.nvar, id.ncon, T)
+                          ρ, pad.pdat.i_active, id.ilow, id.iupp, id.nlow, id.nupp, id.nvar, id.ncon, T)
 
     # Amax = @views norm(pad.pdat.Kp.nzval[pad.diagind_K], Inf)
     # pad.regu.ρ, pad.regu.δ = T(eps(T)^(3/4)), T(eps(T)^(0.45))
     # pad.pdat.LDL.r1, pad.pdat.LDL.r2 = -pad.regu.ρ, pad.regu.δ
     # pad.pdat.LDL.tol = Amax*T(eps(T))
     # pad.pdat.LDL.n_d = id.nvar
+
+    if pad.regu.regul == :dynamic
+        Amax = @views norm(pad.pdat.Kp.nzval[pad.diagind_K], Inf)
+        pad.regu.ρ, pad.regu.δ = -T(eps(T)^(3/4)), T(eps(T)^(0.45))
+        pad.pdat.LDL.r1, pad.pdat.LDL.r2 = pad.regu.ρ, pad.regu.δ
+        pad.pdat.LDL.tol = Amax*T(eps(T))
+        pad.pdat.LDL.n_d = id.nvar
+    end
 
     ldl_factorize!(Symmetric(pad.pdat.Kp, :U), pad.pdat.LDL) 
     while !factorized(pad.pdat.LDL)
