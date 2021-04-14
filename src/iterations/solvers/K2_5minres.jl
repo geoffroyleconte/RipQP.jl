@@ -36,7 +36,7 @@ function PreallocatedData(sp :: K2_5minresParams, fd :: QM_FloatData{T}, id :: Q
 
     # init Regularization values
     if iconf.mode == :mono
-        regu = Regularization(T(sqrt(eps())*1e5), T(sqrt(eps())*1e5), T(1e3*sqrt(eps(T))), T(1e4*sqrt(eps(T))), :classic)
+        regu = Regularization(T(sqrt(eps())*1e5), T(sqrt(eps())*1e5), T(1e2*sqrt(eps(T))), T(1e4*sqrt(eps(T))), :classic)
         D = -T(1.0e0)/2 .* ones(T, id.nvar)
     else
         regu = Regularization(T(sqrt(eps())*1e5), T(sqrt(eps())*1e5), T(sqrt(eps(T))*1e0), T(sqrt(eps(T))*1e0), :classic)
@@ -81,10 +81,14 @@ function solver!(pad :: PreallocatedData_K2_5minres{T}, dda :: DescentDirectionA
         pad.rhs[1:id.nvar] .= @views dda.Δxy_aff[1:id.nvar] .* pad.D
         pad.rhs[id.nvar+1: end] .= @views dda.Δxy_aff[id.nvar+1: end]
         rhsNorm = norm(pad.rhs)
-        pad.rhs ./= rhsNorm
+        if rhsNorm != zero(T)
+            pad.rhs ./= rhsNorm
+        end
         (pad.MS.x, pad.MS.stats) = minres!(pad.MS, pad.opK, pad.rhs, M=pad.P, verbose=0, atol=zero(T), rtol=zero(T), 
-                                           ratol=T(sqrt(eps(T))), rrtol=T(sqrt(eps(T))))
-        pad.MS.x .*= rhsNorm
+                                           ratol=T(sqrt(eps(T))*1e2), rrtol=T(sqrt(eps(T))))
+        if rhsNorm != zero(T)
+            pad.MS.x .*= rhsNorm
+        end
         dda.Δxy_aff .= pad.MS.x
         # ldiv!(dda.Δxy_aff, LDL, pad.rhs)
         # println(norm(Symmetric(pad.K, :U) * dda.Δxy_aff - pad.rhs.*rhsNorm) / rhsNorm)
@@ -97,10 +101,14 @@ function solver!(pad :: PreallocatedData_K2_5minres{T}, dda :: DescentDirectionA
             pad.rhs[1:id.nvar] .= @views itd.Δxy[1:id.nvar] .* pad.D
             pad.rhs[id.nvar+1: end] .= @views itd.Δxy[id.nvar+1: end]
             rhsNorm = norm(pad.rhs)
-            pad.rhs ./= rhsNorm
+            if rhsNorm != zero(T)
+                pad.rhs ./= rhsNorm
+            end
             (pad.MS.x, pad.MS.stats) = minres!(pad.MS, pad.opK, pad.rhs, M=pad.P, verbose=0, atol=zero(T), rtol=zero(T), 
-                                               ratol=T(sqrt(eps(T))), rrtol=T(sqrt(eps(T))))
-            pad.MS.x .*= rhsNorm
+                                               ratol=T(sqrt(eps(T))*1e2), rrtol=T(sqrt(eps(T))))
+            if rhsNorm != zero(T)
+                pad.MS.x .*= rhsNorm
+            end
             itd.Δxy .= pad.MS.x
             # println(norm(Symmetric(pad.K, :U) * itd.Δxy - pad.rhs.*rhsNorm) / rhsNorm)
             # println("norm rhs = ", norm(pad.rhs))
@@ -108,8 +116,15 @@ function solver!(pad :: PreallocatedData_K2_5minres{T}, dda :: DescentDirectionA
             itd.Δxy[1:id.nvar] .*= pad.D
         else
             pad.rhs .= itd.Δxy
+            rhsNorm = norm(pad.rhs)
+            if rhsNorm != zero(T)
+                pad.rhs ./= rhsNorm
+            end
             (pad.MS.x, pad.MS.stats) = minres!(pad.MS, pad.opK, pad.rhs, M=pad.P, atol=zero(T), rtol=zero(T),
-                                               ratol=T(sqrt(eps(T))), rrtol=T(sqrt(eps(T))))
+                                               ratol=T(sqrt(eps(T))*1e2), rrtol=T(sqrt(eps(T))))
+            if rhsNorm != zero(T)
+                pad.MS.x .*= rhsNorm
+            end
             itd.Δxy .= pad.MS.x
             # ldiv!(itd.Δxy, LDL, pad.rhs)
         end

@@ -73,8 +73,8 @@ function ActiveCLDL(id :: QM_IntData, regu :: Regularization{T}, D :: Vector{T},
 end 
 
 function check_active_constr!(i_active, x_m_lvar, uvar_m_x, μ, ilow, iupp, nlow, nupp, nvar, T)  
-    β = T(0.01)
-    tol_active = min(μ^(1-β), one(T)) 
+    β = T(0.8)
+    tol_active = min(μ^(1-β), T(1e-3))
     c_low, c_upp = 1, 1
     for i=1:nvar
         if c_low < nlow && ilow[c_low] < i
@@ -93,7 +93,7 @@ function check_active_constr!(i_active, x_m_lvar, uvar_m_x, μ, ilow, iupp, nlow
             i_active[i] = false
         end
     end
-    # println(sum(i_active))
+    # println(sum(i_active), "  nvar = ", nvar)
 end
 
 function remove_active_constr!(K_colptr, K_rowval, K_nzval, x_m_lvar, uvar_m_x, s_l, s_u, ρ, i_active, ilow, iupp, nlow, nupp, 
@@ -116,11 +116,11 @@ function remove_active_constr!(K_colptr, K_rowval, K_nzval, x_m_lvar, uvar_m_x, 
                     K_nzval[k] = zero(T)
                 elseif i == j && i_active[i]
                     if c_low ≤ nlow && ilow[c_low] == i && c_upp ≤ nupp && iupp[c_upp] == i
-                        K_nzval[k] = -s_l[c_low] * uvar_m_x[c_upp] - s_u[c_upp] * x_m_lvar[c_low] - ρ #* uvar_m_x[c_upp] * x_m_lvar[c_low] 
+                        K_nzval[k] = -s_l[c_low] * uvar_m_x[c_upp] - s_u[c_upp] * x_m_lvar[c_low] - ρ * uvar_m_x[c_upp] * x_m_lvar[c_low] 
                     elseif c_low ≤ nlow && ilow[c_low] == i
-                        K_nzval[k] = -s_l[c_low] - ρ #* x_m_lvar[c_low] 
+                        K_nzval[k] = -s_l[c_low] - ρ * x_m_lvar[c_low] 
                     elseif c_upp ≤ nupp && iupp[c_upp] == i
-                        K_nzval[k] = -s_u[c_upp] - ρ #* uvar_m_x[c_upp]
+                        K_nzval[k] = -s_u[c_upp] - ρ * uvar_m_x[c_upp]
                     end
                 end
             end
@@ -140,12 +140,13 @@ function update_preconditioner!(pdat :: ActiveCLDLData{T}, pad :: PreallocatedDa
                                 pt :: Point{T}, id :: QM_IntData, cnts :: Counters) where {T<:Real}
 
     pad.pdat.Kp.nzval .= pad.K.nzval
-    check_active_constr!(pad.pdat.i_active, itd.x_m_lvar, itd.uvar_m_x, itd.μ, id.ilow, id.iupp, id.nlow, id.nupp, id.nvar, T) 
-    # remove_active_constr!(D, i_active, nvar)
-    ρ = pad.regu.regul == :classic ? pad.regu.ρ : zero(T)
-    remove_active_constr!(pad.pdat.Kp.colptr, pad.pdat.Kp.rowval, pad.pdat.Kp.nzval, itd.x_m_lvar, itd.uvar_m_x, pt.s_l, pt.s_u, 
-                          ρ, pad.pdat.i_active, id.ilow, id.iupp, id.nlow, id.nupp, id.nvar, id.ncon, T)
-
+    if !isnan(itd.μ) 
+        check_active_constr!(pad.pdat.i_active, itd.x_m_lvar, itd.uvar_m_x, itd.μ, id.ilow, id.iupp, id.nlow, id.nupp, id.nvar, T) 
+        # remove_active_constr!(D, i_active, nvar)
+        ρ = pad.regu.regul == :classic ? pad.regu.ρ : zero(T)
+        remove_active_constr!(pad.pdat.Kp.colptr, pad.pdat.Kp.rowval, pad.pdat.Kp.nzval, itd.x_m_lvar, itd.uvar_m_x, pt.s_l, pt.s_u, 
+                            ρ, pad.pdat.i_active, id.ilow, id.iupp, id.nlow, id.nupp, id.nvar, id.ncon, T)
+    end
     # Amax = @views norm(pad.pdat.Kp.nzval[pad.diagind_K], Inf)
     # pad.regu.ρ, pad.regu.δ = T(eps(T)^(3/4)), T(eps(T)^(0.45))
     # pad.pdat.LDL.r1, pad.pdat.LDL.r2 = -pad.regu.ρ, pad.regu.δ
@@ -159,7 +160,6 @@ function update_preconditioner!(pdat :: ActiveCLDLData{T}, pad :: PreallocatedDa
         pad.pdat.LDL.tol = Amax*T(eps(T))
         pad.pdat.LDL.n_d = id.nvar
     end
-
     ldl_factorize!(Symmetric(pad.pdat.Kp, :U), pad.pdat.LDL) 
     while !factorized(pad.pdat.LDL)
         println("error fact")
@@ -182,7 +182,7 @@ function update_preconditioner!(pdat :: ActiveCLDLData{T}, pad :: PreallocatedDa
     pad.pdat.LDL.d .= abs.(pad.pdat.LDL.d)
     # display(Matrix(pad.pdat.Kp))
     pad.P = LinearOperator(T, id.ncon+id.nvar, id.ncon+id.nvar, true, true, v -> ldiv!(pad.pdat.y_opiLDL, pad.pdat.LDL, v)) 
-    Minv = invop(pad.P, T, id.ncon+id.nvar)
+    # Minv = invop(pad.P, T, id.ncon+id.nvar)
     # eigs = real.(eigvals(Matrix(Minv * Symmetric(pad.K,:U))))
     # println(unique(trunc.(eigs, digits = 2)))  
     # println("||K|| ", norm(Symmetric(pad.K, :U)))                   
