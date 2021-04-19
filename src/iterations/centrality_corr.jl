@@ -84,16 +84,16 @@ end
 # function to determine the number of centrality corrections 
 function nb_corrector_steps!(cnts :: Counters, time_fact :: T, time_solve :: T) where {T<:Real}
     rfs = time_fact / time_solve
-    if rfs <= T(10)
+    if rfs <= T(15)
         cnts.kc = 0
-    elseif T(10) < rfs <= T(30)
+    elseif T(15) < rfs <= T(40)
         cnts.kc = 1
-    elseif T(30) < rfs <= T(50)
+    elseif T(40) < rfs <= T(60)
         cnts.kc = 2
-    elseif rfs > T(50)
+    elseif rfs > T(60)
         cnts.kc = 3
     else
-        p = Int(round(rfs / 50))
+        p = Int(round(rfs / 60))
         cntd.kc = p + 2
         if cnts.kc > 10
             cnts.kc = 10
