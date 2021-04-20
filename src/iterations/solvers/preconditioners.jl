@@ -116,11 +116,11 @@ function remove_active_constr!(K_colptr, K_rowval, K_nzval, x_m_lvar, uvar_m_x, 
                     K_nzval[k] = zero(T)
                 elseif i == j && i_active[i]
                     if c_low ≤ nlow && ilow[c_low] == i && c_upp ≤ nupp && iupp[c_upp] == i
-                        K_nzval[k] = -s_l[c_low] * uvar_m_x[c_upp] - s_u[c_upp] * x_m_lvar[c_low] - ρ * uvar_m_x[c_upp] * x_m_lvar[c_low] 
+                        K_nzval[k] = -s_l[c_low] * uvar_m_x[c_upp] - s_u[c_upp] * x_m_lvar[c_low] #- ρ * uvar_m_x[c_upp] * x_m_lvar[c_low] 
                     elseif c_low ≤ nlow && ilow[c_low] == i
-                        K_nzval[k] = -s_l[c_low] - ρ * x_m_lvar[c_low] 
+                        K_nzval[k] = -s_l[c_low] #- ρ * x_m_lvar[c_low] 
                     elseif c_upp ≤ nupp && iupp[c_upp] == i
-                        K_nzval[k] = -s_u[c_upp] - ρ * uvar_m_x[c_upp]
+                        K_nzval[k] = -s_u[c_upp] #- ρ * uvar_m_x[c_upp]
                     end
                 end
             end
