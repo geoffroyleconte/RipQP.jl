@@ -72,9 +72,9 @@ function ActiveCLDL(id :: QM_IntData, regu :: Regularization{T}, D :: Vector{T},
     return ActiveCLDLData{T}(Kp, LDL, y_opiLDL, i_active), P
 end 
 
-function check_active_constr!(i_active, x_m_lvar, uvar_m_x, μ, ilow, iupp, nlow, nupp, nvar, T)  
-    β = T(0.8)
-    tol_active = min(μ^(1-β), T(1e-3))
+function check_active_constr!(i_active, x_m_lvar, uvar_m_x, s_l, s_u, μ, ilow, iupp, nlow, nupp, nvar, T)  
+    β = T(0.3)
+    tol_active = μ^(1-β)
     c_low, c_upp = 1, 1
     for i=1:nvar
         if c_low < nlow && ilow[c_low] < i
@@ -93,6 +93,7 @@ function check_active_constr!(i_active, x_m_lvar, uvar_m_x, μ, ilow, iupp, nlow
             i_active[i] = false
         end
     end
+
     # println(sum(i_active), "  nvar = ", nvar)
 end
 
@@ -141,7 +142,8 @@ function update_preconditioner!(pdat :: ActiveCLDLData{T}, pad :: PreallocatedDa
 
     pad.pdat.Kp.nzval .= pad.K.nzval
     if !isnan(itd.μ) 
-        check_active_constr!(pad.pdat.i_active, itd.x_m_lvar, itd.uvar_m_x, itd.μ, id.ilow, id.iupp, id.nlow, id.nupp, id.nvar, T) 
+        check_active_constr!(pad.pdat.i_active, itd.x_m_lvar, itd.uvar_m_x, pt.s_l, pt.s_u, itd.μ, id.ilow, id.iupp, 
+                             id.nlow, id.nupp, id.nvar, T) 
         # remove_active_constr!(D, i_active, nvar)
         ρ = pad.regu.regul == :classic ? pad.regu.ρ : zero(T)
         remove_active_constr!(pad.pdat.Kp.colptr, pad.pdat.Kp.rowval, pad.pdat.Kp.nzval, itd.x_m_lvar, itd.uvar_m_x, pt.s_l, pt.s_u, 
@@ -197,4 +199,126 @@ function invop(M, T, n)
         ei[i] = zero(T)
     end
     return Minv 
+end
+
+
+# preconditioner for hybrid method
+mutable struct ActiveCHybridLDLData{T<:Real} <: PreconditionerDataK2{T}
+    Kp              :: SparseMatrixCSC{T, Int}
+    LDL             :: LDLFactorizations.LDLFactorization{T,Int,Int,Int}
+    y_opiLDL        :: Vector{T}
+    i_active        :: Vector{Bool}
+end
+
+function ActiveCHybridLDL(id :: QM_IntData, regu :: Regularization{T}, D :: Vector{T}, K :: SparseMatrixCSC{T, Int}) where {T<:Real}
+    
+    Kp = copy(K)
+    LDL = ldl_analyze(Symmetric(Kp, :U))
+    i_active = fill(false, id.nvar)
+    if regu.regul == :dynamic
+        regu.ρ, regu.δ = -T(eps(T)^(3/4)), T(eps(T)^(0.45))
+        LDL.r1, LDL.r2 = regu.ρ, regu.δ
+        LDL.tol = T(eps(T))
+        LDL.n_d = id.nvar
+    end
+    ldl_factorize!(Symmetric(Kp, :U), LDL)
+    y_opiLDL = zeros(T, id.nvar + id.ncon)
+    LDL.d = abs.(LDL.d)
+    P = LinearOperator(T, id.nvar + id.ncon, id.nvar + id.ncon, true, true, v -> ldiv!(y_opiLDL, LDL, v))
+
+    return ActiveCHybridLDLData{T}(Kp, LDL, y_opiLDL, i_active), P
+end 
+
+function active(x, s)
+    if x < s 
+        return true
+    end
+    return false
+end
+
+function check_active_constr_hybrid!(i_active, x_m_lvar, uvar_m_x, s_l, s_u, μ, ilow, iupp, nlow, nupp, nvar, T)  
+    β = T(0.8)
+    tol_active = μ^(1-β)
+    c_low, c_upp = 1, 1
+    for i=1:nvar
+        if c_low < nlow && ilow[c_low] < i
+            c_low += 1
+        end
+        if c_upp < nupp && iupp[c_upp] < i
+            c_upp += 1
+        end
+        if c_low ≤ nlow && ilow[c_low] == i && c_upp ≤ nupp && iupp[c_upp] == i #&& min(x_m_lvar[c_low], uvar_m_x[c_upp]) ≤ tol_active
+            if x_m_lvar[c_low] < uvar_m_x[c_upp] && active(x_m_lvar[c_low], s_l[c_low])
+                i_active[i] = true 
+            elseif x_m_lvar[c_low] > uvar_m_x[c_upp] && active(uvar_m_x[c_upp], s_u[c_upp])
+                i_active[i] = true 
+            end
+        elseif c_low ≤ nlow && ilow[c_low] == i && active(x_m_lvar[c_low], s_l[c_low])
+            i_active[i] = true 
+        elseif c_upp ≤ nupp && iupp[c_upp] == i && active(uvar_m_x[c_upp], s_u[c_upp])
+            i_active[i] = true
+        else 
+            i_active[i] = false
+        end
+    end
+
+    # println(sum(i_active), "  nvar = ", nvar)
+end
+
+function update_preconditioner!(pdat :: ActiveCHybridLDLData{T}, pad :: PreallocatedData{T}, itd :: IterData{T}, 
+                                pt :: Point{T}, id :: QM_IntData, cnts :: Counters) where {T<:Real}
+
+    pad.pdat.Kp.nzval .= pad.K.nzval
+    if !isnan(itd.μ) 
+        if !pad.ac_rm 
+            println("switch ", cnts.k)
+            check_active_constr!(pad.pdat.i_active, itd.x_m_lvar, itd.uvar_m_x, pt.s_l, pt.s_u, itd.μ, id.ilow, id.iupp, 
+                                id.nlow, id.nupp, id.nvar, T) 
+            println("n_active = ", sum(pad.pdat.i_active), "  nvar = ", id.nvar)
+            pad.ac_rm = true
+        end
+        # remove_active_constr!(D, i_active, nvar)
+        ρ = pad.regu.regul == :classic ? pad.regu.ρ : zero(T)
+        remove_active_constr!(pad.pdat.Kp.colptr, pad.pdat.Kp.rowval, pad.pdat.Kp.nzval, itd.x_m_lvar, itd.uvar_m_x, pt.s_l, pt.s_u, 
+                              ρ, pad.pdat.i_active, id.ilow, id.iupp, id.nlow, id.nupp, id.nvar, id.ncon, T)
+    end
+    # Amax = @views norm(pad.pdat.Kp.nzval[pad.diagind_K], Inf)
+    # pad.regu.ρ, pad.regu.δ = T(eps(T)^(3/4)), T(eps(T)^(0.45))
+    # pad.pdat.LDL.r1, pad.pdat.LDL.r2 = -pad.regu.ρ, pad.regu.δ
+    # pad.pdat.LDL.tol = Amax*T(eps(T))
+    # pad.pdat.LDL.n_d = id.nvar
+
+    if pad.regu.regul == :dynamic
+        Amax = @views norm(pad.pdat.Kp.nzval[pad.diagind_K], Inf)
+        pad.regu.ρ, pad.regu.δ = -T(eps(T)^(3/4)), T(eps(T)^(0.45))
+        pad.pdat.LDL.r1, pad.pdat.LDL.r2 = pad.regu.ρ, pad.regu.δ
+        pad.pdat.LDL.tol = Amax*T(eps(T))
+        pad.pdat.LDL.n_d = id.nvar
+    end
+    ldl_factorize!(Symmetric(pad.pdat.Kp, :U), pad.pdat.LDL) 
+    while !factorized(pad.pdat.LDL)
+        println("error fact")
+        out = update_regu_trycatch!(pad.regu, cnts, T, T)
+        out == 1 && return out
+        cnts.c_catch += 1
+        cnts.c_catch >= 4 && return 1
+        # pad.D .= -pad.regu.ρ
+        # D[ilow] .-= s_l ./ x_m_lvar
+        # D[iupp] .-= s_u ./ uvar_m_x
+        # D[diag_Q.nzind] .-= diag_Q.nzval
+        pad.pdat.Kp.nzval[view(pad.diagind_K,1: id.nvar)] .-= pad.regu.ρ
+        pad.pdat.Kp.nzval[view(pad.diagind_K, id.nvar+1: id.ncon+id.nvar)] .= pad.regu.δ
+        pad.K.nzval[view(pad.diagind_K,1: id.nvar)] .-= pad.regu.ρ
+        pad.K.nzval[view(pad.diagind_K, id.nvar+1: id.ncon+id.nvar)] .= pad.regu.δ
+        # println(norm(pad.K.nzval[pad.diagind_K] - pad.pdat.Kp.nzval[pad.diagind_K]))
+        ldl_factorize!(Symmetric(pad.pdat.Kp, :U), pad.pdat.LDL)
+    end
+    # println("norm diff prec", norm(pdat.Kp - pad.K))
+    pad.pdat.LDL.d .= abs.(pad.pdat.LDL.d)
+    # display(Matrix(pad.pdat.Kp))
+    pad.P = LinearOperator(T, id.ncon+id.nvar, id.ncon+id.nvar, true, true, v -> ldiv!(pad.pdat.y_opiLDL, pad.pdat.LDL, v)) 
+    # Minv = invop(pad.P, T, id.ncon+id.nvar)
+    # eigs = real.(eigvals(Matrix(Minv * Symmetric(pad.K,:U))))
+    # println(unique(trunc.(eigs, digits = 2)))  
+    # println("||K|| ", norm(Symmetric(pad.K, :U)))                   
 end

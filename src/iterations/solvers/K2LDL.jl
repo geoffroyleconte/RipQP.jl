@@ -125,6 +125,22 @@ function update_pad!(pad :: PreallocatedData_K2{T}, dda :: DescentDirectionAlloc
         return out
     end
 
+    ###
+    # vecplot = sort([itd.x_m_lvar; itd.uvar_m_x])
+    vecplot = sort([pt.s_l; pt.s_u], rev=true)
+    kstr = string("iter", string(cnts.k))
+    mustr = string("μ", string(cnts.k))
+    if cnts.k > 14
+        if cnts.k == 2
+            display(plot(vecplot, yscale=:log, label=kstr))
+            # display(plot!(1:length(vecplot), itd.μ.*ones(length(vecplot)), label=mustr))
+        elseif rem(cnts.k, 2) == 0
+            display(plot!(vecplot, label=kstr,  yscale=:log))
+            # display(plot!(1:length(vecplot), itd.μ.*ones(length(vecplot)), label=mustr))
+            println("ok")
+        end
+    end
+
     return 0
 end
 

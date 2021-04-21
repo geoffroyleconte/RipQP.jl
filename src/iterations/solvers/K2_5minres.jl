@@ -2,20 +2,20 @@ export K2_5minresParams
 
 struct K2_5minresParams <: SolverParams
     preconditioner  :: Symbol
-    atol            :: Float64 
-    rtol            :: Float64
-    conlim            :: Float64
+    ratol           :: Float64 
+    rrtol           :: Float64
+    conlim          :: Float64
 end
 
-function K2_5minresParams(; preconditioner :: Symbol = :Jacobi, atol :: T = 1.0e-6, rtol :: T = 1.0e-6,
+function K2_5minresParams(; preconditioner :: Symbol = :Jacobi, ratol :: T = sqrt(eps())*1.0e2, rrtol :: T = sqrt(eps()),
                           conlim :: Float64 = 1.0e-6) where {T<:Real} 
-    return K2_5minresParams(preconditioner, atol, rtol, conlim)
+    return K2_5minresParams(preconditioner, ratol, rrtol, conlim)
 end
 
 mutable struct PreallocatedData_K2_5minres{T<:Real} <: PreallocatedData{T} 
     pdat             :: PreconditionerDataK2{T}
-    atol             :: T
-    rtol             :: T
+    ratol            :: T
+    rrtol            :: T
     conlim           :: T
     P                :: LinearOperator{T} # Preconditioner
     D                :: Vector{T}                                        # temporary top-left diagonal
@@ -54,8 +54,8 @@ function PreallocatedData(sp :: K2_5minresParams, fd :: QM_FloatData{T}, id :: Q
     pdat, P = eval(sp.preconditioner)(id, regu, D, K)
 
     return PreallocatedData_K2_5minres(pdat,
-                                       T(sp.atol),
-                                       T(sp.rtol),
+                                       T(sp.ratol),
+                                       T(sp.rrtol),
                                        T(sp.conlim),
                                        P,
                                        D,
@@ -85,7 +85,7 @@ function solver!(pad :: PreallocatedData_K2_5minres{T}, dda :: DescentDirectionA
             pad.rhs ./= rhsNorm
         end
         (pad.MS.x, pad.MS.stats) = minres!(pad.MS, pad.opK, pad.rhs, M=pad.P, verbose=0, atol=zero(T), rtol=zero(T), 
-                                           ratol=T(sqrt(eps(T))*1e2), rrtol=T(sqrt(eps(T))))
+                                           ratol=pad.ratol, rrtol=pad.rrtol)
         if rhsNorm != zero(T)
             pad.MS.x .*= rhsNorm
         end
@@ -105,7 +105,7 @@ function solver!(pad :: PreallocatedData_K2_5minres{T}, dda :: DescentDirectionA
                 pad.rhs ./= rhsNorm
             end
             (pad.MS.x, pad.MS.stats) = minres!(pad.MS, pad.opK, pad.rhs, M=pad.P, verbose=0, atol=zero(T), rtol=zero(T), 
-                                               ratol=T(sqrt(eps(T))*1e2), rrtol=T(sqrt(eps(T))))
+                                               ratol=pad.ratol, rrtol=pad.rrtol)
             if rhsNorm != zero(T)
                 pad.MS.x .*= rhsNorm
             end
@@ -121,7 +121,7 @@ function solver!(pad :: PreallocatedData_K2_5minres{T}, dda :: DescentDirectionA
                 pad.rhs ./= rhsNorm
             end
             (pad.MS.x, pad.MS.stats) = minres!(pad.MS, pad.opK, pad.rhs, M=pad.P, atol=zero(T), rtol=zero(T),
-                                               ratol=T(sqrt(eps(T))*1e2), rrtol=T(sqrt(eps(T))))
+                                               ratol=pad.ratol, rrtol=pad.rrtol)
             if rhsNorm != zero(T)
                 pad.MS.x .*= rhsNorm
             end
@@ -134,8 +134,8 @@ function solver!(pad :: PreallocatedData_K2_5minres{T}, dda :: DescentDirectionA
 
         out = 0
         if pad.regu.regul == :classic # update ρ and δ values, check K diag magnitude 
-            # out = update_regu_diagK2_5!(pad.regu, pad.D, itd.pdd, itd.l_pdd, itd.mean_pdd, cnts, T, T0) 
-            update_regu!(pad.regu)
+            out = update_regu_diagK2_5!(pad.regu, pad.D, itd.pdd, itd.l_pdd, itd.mean_pdd, cnts, T, T0) 
+            # update_regu!(pad.regu)
         end
 
         pad.D .= one(T) 
