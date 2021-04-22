@@ -271,10 +271,11 @@ function update_preconditioner!(pdat :: ActiveCHybridLDLData{T}, pad :: Prealloc
     pad.pdat.Kp.nzval .= pad.K.nzval
     if !isnan(itd.μ) 
         if !pad.ac_rm 
-            println("switch ", cnts.k)
+            cnts.kswitch = cnts.k
+            # println("switch ", cnts.k)
             check_active_constr_hybrid!(pad.pdat.i_active, itd.x_m_lvar, itd.uvar_m_x, pt.s_l, pt.s_u, itd.μ, id.ilow, id.iupp, 
                                 id.nlow, id.nupp, id.nvar, T) 
-            println("n_active = ", sum(pad.pdat.i_active), "  nvar = ", id.nvar)
+            # println("n_active = ", sum(pad.pdat.i_active), "  nvar = ", id.nvar)
             pad.ac_rm = true
         end
         # remove_active_constr!(D, i_active, nvar)
@@ -297,7 +298,7 @@ function update_preconditioner!(pdat :: ActiveCHybridLDLData{T}, pad :: Prealloc
     end
     ldl_factorize!(Symmetric(pad.pdat.Kp, :U), pad.pdat.LDL) 
     while !factorized(pad.pdat.LDL)
-        println("error fact")
+        # println("error fact")
         out = update_regu_trycatch!(pad.regu, cnts, T, T)
         out == 1 && return out
         cnts.c_catch += 1

@@ -66,9 +66,6 @@ function ripqp(QM :: QuadraticModel; iconf :: InputConfig{Int} = InputConfig(), 
     Δt = time() - start_time
     sc.tired = Δt > itol.max_time
 
-    cnts = Counters(zero(Int), zero(Int), 0, 0, iconf.kc==-1 ? nb_corrector_steps(pad.K.colptr, id.ncon, id.nvar, T) : iconf.kc,
-                    iconf.max_ref, zero(Int))
-
     # display
     if display == true
         @info log_header([:k, :pri_obj, :pdd, :rbNorm, :rcNorm, :n_Δx, :α_pri, :α_du, :μ],
@@ -141,7 +138,7 @@ function ripqp(QM :: QuadraticModel; iconf :: InputConfig{Int} = InputConfig(), 
                                   multipliers_U = pt.s_u,
                                   iter = cnts.km,
                                   elapsed_time = elapsed_time,
-                                  solver_specific = Dict(:absolute_iter_cnt=>cnts.k))
+                                  solver_specific = Dict(:absolute_iter_cnt=>cnts.k, :iter_switch=>cnts.kswitch))
     return stats
 end
 

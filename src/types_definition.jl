@@ -280,4 +280,5 @@ mutable struct Counters
     kc       :: Int # maximum corrector steps
     max_ref  :: Int # maximum number of refinements
     c_ref    :: Int # current number of refinements
+    kswitch  :: Int
 end
