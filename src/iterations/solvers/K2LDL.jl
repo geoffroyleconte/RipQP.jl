@@ -126,25 +126,25 @@ function update_pad!(pad :: PreallocatedData_K2{T}, dda :: DescentDirectionAlloc
     end
 
     ###
-    vec = [itd.x_m_lvar; itd.uvar_m_x]
-    p = sortperm(vec)
-    vecplot = vec[p]
-    vecplots = [pt.s_l; pt.s_u][p]
-    kstr = string("x-l iter", string(cnts.k))
-    kstrs = string("s iter", string(cnts.k))
-    mustr = string("μ", string(cnts.k))
-    if cnts.k > 14
-        if cnts.k == 4
-            display(plot(vecplot, yscale=:log, label=kstr))
-            display(plot!(vecplots, label=kstrs,  yscale=:log))
-            display(plot!(1:length(vecplot), itd.μ.*ones(length(vecplot)), label=mustr))
-        elseif rem(cnts.k, 4) == 1
-            display(plot!(vecplot, label=kstr,  yscale=:log))
-            display(plot!(vecplots, label=kstrs,  yscale=:log))
-            display(plot!(1:length(vecplot), itd.μ.*ones(length(vecplot)), label=mustr))
-            println("ok")
-        end
-    end
+    # vec = [itd.x_m_lvar; itd.uvar_m_x]
+    # p = sortperm(vec)
+    # vecplot = vec[p]
+    # vecplots = [pt.s_l; pt.s_u][p]
+    # kstr = string("x-l iter", string(cnts.k))
+    # kstrs = string("s iter", string(cnts.k))
+    # mustr = string("μ", string(cnts.k))
+    # if cnts.k > 14
+    #     if cnts.k == 4
+    #         display(plot(vecplot, yscale=:log, label=kstr))
+    #         display(plot!(vecplots, label=kstrs,  yscale=:log))
+    #         display(plot!(1:length(vecplot), itd.μ.*ones(length(vecplot)), label=mustr))
+    #     elseif rem(cnts.k, 4) == 1
+    #         display(plot!(vecplot, label=kstr,  yscale=:log))
+    #         display(plot!(vecplots, label=kstrs,  yscale=:log))
+    #         display(plot!(1:length(vecplot), itd.μ.*ones(length(vecplot)), label=mustr))
+    #         println("ok")
+    #     end
+    # end
 
     return 0
 end

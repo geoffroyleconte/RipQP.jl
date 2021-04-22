@@ -1,6 +1,6 @@
 module RipQP
 
-using LinearAlgebra, Quadmath, SparseArrays, Statistics, Plots
+using LinearAlgebra, Quadmath, SparseArrays, Statistics
 
 using Krylov, LDLFactorizations, LimitedLDLFactorizations, LinearOperators, QuadraticModels, SolverCore
 
