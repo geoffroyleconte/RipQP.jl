@@ -18,6 +18,30 @@ function get_norm_rc!(v, AT_colptr, AT_rowval, AT_nzval, n, ax)
     end
 end
 
+function get_norm_rc_symm!(v, QT_colptr, QT_rowval, QT_nzval, n)
+    T = eltype(v)
+    v .= zero(T)
+    @inbounds @simd for j=1:n
+        for k=QT_colptr[j] : (QT_colptr[j+1]-1)
+            i = QT_rowval[k]
+            absval = abs(QT_nzval[k])
+            if absval > v[i]
+                v[i] = absval
+            end
+            if absval > v[j]
+                v[j] = absval 
+            end
+        end
+    end
+
+    v .= sqrt.(v)
+    @inbounds @simd for i=1:length(v)
+        if v[i] == zero(T)
+            v[i] = one(T)
+        end
+    end
+end
+
 function mul_AT_D1_D2!(AT_colptr, AT_rowval, AT_nzval, d1, d2, r, c)
     @inbounds @simd for j=1:length(c)
         for i=AT_colptr[j]: (AT_colptr[j+1]-1)
@@ -82,12 +106,12 @@ function scaling_Ruiz!(fd_T0 :: QM_FloatData{T}, id :: QM_IntData, ϵ :: T;
     # scaling Q (symmetric)
     d3 = ones(T, id.nvar)
     r_k .= zero(T) # r_k is now norm of rows of Q
-    get_norm_rc!(r_k, fd_T0.Q.colptr, fd_T0.Q.rowval, fd_T0.Q.nzval, id.nvar,:row)
+    get_norm_rc_symm!(r_k, fd_T0.Q.colptr, fd_T0.Q.rowval, fd_T0.Q.nzval, id.nvar)
     convergence = maximum(abs.(one(T) .- r_k)) <= ϵ
     mul_Q_D!(fd_T0.Q.colptr, fd_T0.Q.rowval, fd_T0.Q.nzval, d3, r_k)
     k = 1
     while !convergence && k < max_iter
-        get_norm_rc!(r_k, fd_T0.Q.colptr, fd_T0.Q.rowval, fd_T0.Q.nzval, id.nvar,:row)
+        get_norm_rc_symm!(r_k, fd_T0.Q.colptr, fd_T0.Q.rowval, fd_T0.Q.nzval, id.nvar)
         convergence = maximum(abs.(one(T) .- r_k)) <= ϵ
         mul_Q_D!(fd_T0.Q.colptr, fd_T0.Q.rowval, fd_T0.Q.nzval, d3, r_k)
         k += 1
@@ -151,14 +175,15 @@ end
 
 function scaling_K_Ruiz!(K :: SparseMatrixCSC{T, Int}, d4 :: Vector{T}, r_k :: Vector{T}, n :: Int,
                          ϵ :: T) where {T<:Real}
-    d4 .= 1
+    max_iter = 100
+    d4 .= one(T)
     r_k .= zero(T) # r_k is now norm of rows of Q
-    get_norm_rc!(r_k, K.colptr, K.rowval, K.nzval, n,:row)
+    get_norm_rc_symm!(r_k, K.colptr, K.rowval, K.nzval, n)
     convergence = maximum(abs.(one(T) .- r_k)) <= ϵ
     mul_Q_D!(K.colptr, K.rowval, K.nzval, d4, r_k)
     k = 1
     while !convergence && k < max_iter
-        get_norm_rc!(r_k, K.colptr, K.rowval, K.nzval, n,:row)
+        get_norm_rc_symm!(r_k, K.colptr, K.rowval, K.nzval, n)
         convergence = maximum(abs.(one(T) .- r_k)) <= ϵ
         mul_Q_D!(K.colptr, K.rowval, K.nzval, d4, r_k)
         k += 1

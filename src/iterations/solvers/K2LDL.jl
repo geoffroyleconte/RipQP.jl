@@ -32,6 +32,8 @@ mutable struct PreallocatedData_K2{T<:Real} <: PreallocatedData{T}
     K_fact           :: LDLFactorizations.LDLFactorization{T,Int,Int,Int} # factorized matrix
     fact_fail        :: Bool # true if factorization failed 
     diagind_K        :: Vector{Int} # diagonal indices of J
+    d4               :: Vector{T} # scaling vector
+    r_k              :: Vector{T} # vector used for scaling
 end
 
 # outer constructor
@@ -69,7 +71,9 @@ function PreallocatedData(sp :: K2LDLParams, fd :: QM_FloatData{T}, id :: QM_Int
                                K, #K
                                K_fact, #K_fact
                                false,
-                               diagind_K #diagind_K
+                               diagind_K, #diagind_K
+                               ones(T, id.nvar+id.ncon),
+                               zeros(T, id.nvar+id.ncon)
                                )
 end
                 
@@ -80,7 +84,9 @@ function convertpad(::Type{<:PreallocatedData{T}}, pad :: PreallocatedData_K2{T_
                               convert(SparseMatrixCSC{T,Int}, pad.K),
                               convertldl(T, pad.K_fact),
                               pad.fact_fail,
-                              pad.diagind_K
+                              pad.diagind_K,
+                              convert(Array{T}, pad.d4),
+                              convert(Array{T}, pad.r_k)
                               )
 
     if pad.regu.regul == :classic
@@ -103,7 +109,18 @@ function solver!(pad :: PreallocatedData_K2{T}, dda :: DescentDirectionAllocs{T}
                  fd :: Abstract_QM_FloatData{T}, id :: QM_IntData, res :: Residuals{T}, cnts :: Counters, T0 :: DataType, 
                  step :: Symbol) where {T<:Real}  
     # erase dda.Δxy_aff only for affine predictor step with PC method
-    step == :aff ? ldiv!(pad.K_fact, dda.Δxy_aff) : ldiv!(pad.K_fact, itd.Δxy)
+    if step == :aff 
+        dda.Δxy_aff .*= pad.d4
+        ldiv!(pad.K_fact, dda.Δxy_aff) 
+        dda.Δxy_aff .*= pad.d4
+    elseif step == :init
+        ldiv!(pad.K_fact, itd.Δxy)
+    else
+        itd.Δxy .*= pad.d4
+        ldiv!(pad.K_fact, itd.Δxy)
+        itd.Δxy .*= pad.d4
+        div_D4_K_D4!(pad.K.colptr, pad.K.rowval, pad.K.nzval, pad.d4, id.nvar+id.ncon)
+    end
     return 0
 end
 
@@ -117,7 +134,7 @@ function update_pad!(pad :: PreallocatedData_K2{T}, dda :: DescentDirectionAlloc
     end
 
     out = factorize_K2!(pad.K, pad.K_fact, pad.D, pad.diag_Q, pad.diagind_K, pad.regu, 
-                        pt.s_l, pt.s_u, itd.x_m_lvar, itd.uvar_m_x, id.ilow, id.iupp, 
+                        pt.s_l, pt.s_u, itd.x_m_lvar, itd.uvar_m_x, pad.d4, pad.r_k, id.ilow, id.iupp, 
                         id.ncon, id.nvar, cnts, itd.qp, T, T0) # update D and factorize K
 
     if out == 1 
@@ -201,7 +218,7 @@ function create_K2(id, D, Q, AT, diag_Q, regu)
 end
 
 # iteration functions for the K2 system
-function factorize_K2!(K, K_fact, D, diag_Q , diagind_K, regu, s_l, s_u, x_m_lvar, uvar_m_x, 
+function factorize_K2!(K, K_fact, D, diag_Q , diagind_K, regu, s_l, s_u, x_m_lvar, uvar_m_x, d4, r_k,
                        ilow, iupp, ncon, nvar, cnts, qp, T, T0) 
 
     if regu.regul == :classic
@@ -214,6 +231,8 @@ function factorize_K2!(K, K_fact, D, diag_Q , diagind_K, regu, s_l, s_u, x_m_lva
     D[iupp] .-= s_u ./ uvar_m_x
     D[diag_Q.nzind] .-= diag_Q.nzval
     K.nzval[view(diagind_K,1:nvar)] = D 
+
+    scaling_K_Ruiz!(K, d4, r_k, nvar+ncon, T(1.0e-2))
 
     if regu.regul == :dynamic
         Amax = @views norm(K.nzval[diagind_K], Inf)
@@ -240,8 +259,8 @@ function factorize_K2!(K, K_fact, D, diag_Q , diagind_K, regu, s_l, s_u, x_m_lva
             D[ilow] .-= s_l ./ x_m_lvar
             D[iupp] .-= s_u ./ uvar_m_x
             D[diag_Q.nzind] .-= diag_Q.nzval
-            K.nzval[view(diagind_K,1:nvar)] = D 
-            K.nzval[view(diagind_K, nvar+1:ncon+nvar)] .= regu.δ
+            K.nzval[view(diagind_K,1:nvar)] .= @views D .* d4[1:nvar].^2 
+            K.nzval[view(diagind_K, nvar+1:ncon+nvar)] .= @views regu.δ .* d4[nvar+1:nvar+ncon].^2
             ldl_factorize!(Symmetric(K, :U), K_fact)
         end
 
