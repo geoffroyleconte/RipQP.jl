@@ -281,4 +281,5 @@ mutable struct Counters
     max_ref  :: Int # maximum number of refinements
     c_ref    :: Int # current number of refinements
     kswitch  :: Int
+    n_active :: Int
 end

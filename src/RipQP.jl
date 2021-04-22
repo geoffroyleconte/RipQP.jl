@@ -138,7 +138,8 @@ function ripqp(QM :: QuadraticModel; iconf :: InputConfig{Int} = InputConfig(), 
                                   multipliers_U = pt.s_u,
                                   iter = cnts.km,
                                   elapsed_time = elapsed_time,
-                                  solver_specific = Dict(:absolute_iter_cnt=>cnts.k, :iter_switch=>cnts.kswitch))
+                                  solver_specific = Dict(:absolute_iter_cnt=>cnts.k, :iter_switch=>cnts.kswitch,
+                                                         :n_active=> cnts.n_active))
     return stats
 end
 
