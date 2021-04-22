@@ -273,7 +273,7 @@ function update_preconditioner!(pdat :: ActiveCHybridLDLData{T}, pad :: Prealloc
         if !pad.ac_rm 
             cnts.kswitch = cnts.k
             # println("switch ", cnts.k)
-            check_active_constr_hybrid!(pad.pdat.i_active, itd.x_m_lvar, itd.uvar_m_x, pt.s_l, pt.s_u, itd.μ, id.ilow, id.iupp, 
+            check_active_constr!(pad.pdat.i_active, itd.x_m_lvar, itd.uvar_m_x, pt.s_l, pt.s_u, itd.μ, id.ilow, id.iupp, 
                                 id.nlow, id.nupp, id.nvar, T) 
             # println("n_active = ", sum(pad.pdat.i_active), "  nvar = ", id.nvar)
             cnts.n_active = sum(pad.pdat.i_active)
