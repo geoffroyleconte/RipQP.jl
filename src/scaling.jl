@@ -148,3 +148,27 @@ function post_scale(d1 :: Vector{T}, d2 :: Vector{T}, d3 :: Vector{T}, pt :: Poi
 
     return pt, pri_obj, res
 end
+
+function scaling_K_Ruiz!(K :: SparseMatrixCSC{T, Int}, d4 :: Vector{T}, r_k :: Vector{T}, n :: Int,
+                         ϵ :: T) where {T<:Real}
+    d4 .= 1
+    r_k .= zero(T) # r_k is now norm of rows of Q
+    get_norm_rc!(r_k, K.colptr, K.rowval, K.nzval, n,:row)
+    convergence = maximum(abs.(one(T) .- r_k)) <= ϵ
+    mul_Q_D!(K.colptr, K.rowval, K.nzval, d4, r_k)
+    k = 1
+    while !convergence && k < max_iter
+        get_norm_rc!(r_k, K.colptr, K.rowval, K.nzval, n,:row)
+        convergence = maximum(abs.(one(T) .- r_k)) <= ϵ
+        mul_Q_D!(K.colptr, K.rowval, K.nzval, d4, r_k)
+        k += 1
+    end
+end
+
+function div_D4_K_D4!(K_colptr, K_rowval, K_nzval, d4, n)
+    @inbounds @simd for j=1:n
+        for i=K_colptr[j]: (K_colptr[j+1]-1)
+            K_nzval[i] /= d4[K_rowval[i]] * d4[j] 
+        end
+    end 
+end
