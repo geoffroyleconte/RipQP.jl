@@ -44,6 +44,7 @@ Type to specify the configuration used by RipQP.
 - `mode :: Symbol`: should be `:mono` to use the mono-precision mode, or `:multi` to use
     the multi-precision mode (start in single precision and gradually transitions
     to `T0`)
+- `presolve :: Bool`: activate/deactivate presolve
 - `scaling :: Bool`: activate/deactivate scaling of A and Q in `QM0`
 - `normalize_rtol :: Bool = true` : if `true`, the primal and dual tolerance for the stopping criteria 
     are normalized by the initial primal and dual residuals
@@ -60,7 +61,8 @@ Type to specify the configuration used by RipQP.
 
 The constructor
 
-    iconf = InputConfig(; mode :: Symbol = :mono, scaling :: Bool = true, 
+    iconf = InputConfig(; mode :: Symbol = :mono, presolve :: Bool = true,
+                        scaling :: Bool = true, 
                         normalize_rtol :: Bool = true, kc :: I = 0, 
                         refinement :: Symbol = :none, max_ref :: I = 0, 
                         sp :: SolverParams = K2LDLParams(),
@@ -70,6 +72,7 @@ returns a `InputConfig` struct that shall be used to solve the input `QuadraticM
 """
 struct InputConfig{I<:Integer}
     mode                :: Symbol
+    presolve            :: Bool
     scaling             :: Bool 
     normalize_rtol      :: Bool # normalize the primal and dual tolerance to the initial starting primal and dual residuals
     kc                  :: I # multiple centrality corrections, -1 = automatic computation
@@ -83,7 +86,7 @@ struct InputConfig{I<:Integer}
     solve_method        :: Symbol
 end
 
-function InputConfig(; mode :: Symbol = :mono, scaling :: Bool = true, normalize_rtol :: Bool = true, 
+function InputConfig(; mode :: Symbol = :mono, presolve :: Bool = true, scaling :: Bool = true, normalize_rtol :: Bool = true, 
                       kc :: I = 0, refinement :: Symbol = :none, max_ref :: I = 0, sp :: SolverParams = K2LDLParams(),
                       solve_method :: Symbol = :PC) where {I<:Integer}
 
@@ -92,7 +95,7 @@ function InputConfig(; mode :: Symbol = :mono, scaling :: Bool = true, normalize
         refinement == :none || error("not a valid refinement parameter")
     solve_method == :IPF && kc != 0 && error("IPF method should not be used with centrality corrections") 
 
-    return InputConfig{I}(mode, scaling, normalize_rtol, kc, refinement, max_ref, sp, solve_method)
+    return InputConfig{I}(mode, presolve, scaling, normalize_rtol, kc, refinement, max_ref, sp, solve_method)
 end
 
 """

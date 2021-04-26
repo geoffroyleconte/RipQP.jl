@@ -4,6 +4,8 @@ using LinearAlgebra, Quadmath, SparseArrays, Statistics
 
 using LDLFactorizations, QuadraticModels, SolverCore
 
+using MathOptPresolve
+
 export ripqp
 
 include("types_definition.jl")
@@ -12,6 +14,7 @@ include("refinement.jl")
 include("data_initialization.jl")
 include("starting_points.jl")
 include("scaling.jl")
+include("presolve.jl")
 include("multi_precision.jl")
 
 """
@@ -28,12 +31,18 @@ containing information about the solved problem.
 - `itol :: InputTol{T, Int}` input Tolerances for the stopping criteria. See `InputTol{T, I}`.
 - `display::Bool`: activate/deactivate iteration data display
 """
-function ripqp(QM :: QuadraticModel; iconf :: InputConfig{Int} = InputConfig(), itol :: InputTol{Tu, Int} = InputTol(),
+function ripqp(QM0 :: QuadraticModel; iconf :: InputConfig{Int} = InputConfig(), itol :: InputTol{Tu, Int} = InputTol(),
                display :: Bool = true) where {Tu<:Real}
 
     start_time = time()
     elapsed_time = 0.0
     sc = StopCrit(false, false, false, false, itol.max_iter, itol.max_time, start_time, 0.)
+
+    if iconf.presolve
+        QM, ps = presolve(QM0)
+    else
+        QM = QM0
+    end
 
     nvar_init = QM.meta.nvar
     SlackModel!(QM) # add slack variables to the problem if QM.meta.lcon != QM.meta.ucon
@@ -128,9 +137,15 @@ function ripqp(QM :: QuadraticModel; iconf :: InputConfig{Int} = InputConfig(), 
                                       itd.Ax, itd.cTx, itd.pri_obj, itd.dual_obj, itd.xTQx_2)
     end
 
+    if iconf.presolve 
+        x_opt = postsolve(ps, pt, itd, QM0)
+    else
+        x_opt = pt.x[1:nvar_init]
+    end
+
     elapsed_time = time() - sc.start_time
 
-    stats = GenericExecutionStats(status, QM, solution = pt.x[1:nvar_init],
+    stats = GenericExecutionStats(status, QM, solution = x_opt,
                                   objective = itd.pri_obj,
                                   dual_feas = res.rcNorm,
                                   primal_feas = res.rbNorm,
