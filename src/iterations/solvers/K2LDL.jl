@@ -33,7 +33,6 @@ mutable struct PreallocatedData_K2{T<:Real} <: PreallocatedData{T}
     fact_fail        :: Bool # true if factorization failed 
     diagind_K        :: Vector{Int} # diagonal indices of J
     d4               :: Vector{T} # scaling vector
-    r_k              :: Vector{T} # vector used for scaling
 end
 
 # outer constructor
@@ -41,17 +40,22 @@ function PreallocatedData(sp :: K2LDLParams, fd :: QM_FloatData{T}, id :: QM_Int
                           iconf :: InputConfig{Tconf}) where {T<:Real, Tconf<:Real}
 
     # init Regularization values
+    D = zeros(T, id.nvar)
+    diag_Q = get_diag_Q(fd.Q.colptr, fd.Q.rowval, fd.Q.nzval, id.nvar)
+    K = create_K2(id, D, fd.Q, fd.AT, diag_Q, sp.regul)
+    d4 = ones(T, id.nvar+id.ncon)
+    scaling_K_Ruiz!(K, d4, zeros(T, id.nvar+id.ncon), id.nvar+id.ncon, T(1.0e-3))
+
     if iconf.mode == :mono
-        regu = Regularization(T(sqrt(eps())*1e5), T(sqrt(eps())*1e5), 1e-5*sqrt(eps(T)), 1e0*sqrt(eps(T)), sp.regul)
-        D = -T(1.0e0)/2 .* ones(T, id.nvar)
+        regu = Regularization(T(sqrt(eps())*1e5), T(sqrt(eps())*1e5), 1e-5*sqrt(eps(T)), 1e-5*sqrt(eps(T)), sp.regul)
     else
         regu = Regularization(T(sqrt(eps())*1e5), T(sqrt(eps())*1e5), T(sqrt(eps(T))*1e0), T(sqrt(eps(T))*1e0), sp.regul)
-        D = -T(1.0e-2) .* ones(T, id.nvar)
     end
-    diag_Q = get_diag_Q(fd.Q.colptr, fd.Q.rowval, fd.Q.nzval, id.nvar)
-    K = create_K2(id, D, fd.Q, fd.AT, diag_Q, regu)
-
+    D .= -T(1.0e0)/2 
     diagind_K = get_diag_sparseCSC(K.colptr, id.ncon+id.nvar)
+    K.nzval[view(diagind_K,1:id.nvar)] -= D 
+    K.nzval[view(diagind_K, id.nvar+1:id.ncon+id.nvar)] .= regu.δ
+
     K_fact = ldl_analyze(Symmetric(K, :U))
     if regu.regul == :dynamic
         Amax = @views norm(K.nzval[diagind_K], Inf)
@@ -72,8 +76,7 @@ function PreallocatedData(sp :: K2LDLParams, fd :: QM_FloatData{T}, id :: QM_Int
                                K_fact, #K_fact
                                false,
                                diagind_K, #diagind_K
-                               ones(T, id.nvar+id.ncon),
-                               zeros(T, id.nvar+id.ncon)
+                               d4
                                )
 end
                 
@@ -85,8 +88,7 @@ function convertpad(::Type{<:PreallocatedData{T}}, pad :: PreallocatedData_K2{T_
                               convertldl(T, pad.K_fact),
                               pad.fact_fail,
                               pad.diagind_K,
-                              convert(Array{T}, pad.d4),
-                              convert(Array{T}, pad.r_k)
+                              convert(Array{T}, pad.d4)
                               )
 
     if pad.regu.regul == :classic
@@ -113,13 +115,10 @@ function solver!(pad :: PreallocatedData_K2{T}, dda :: DescentDirectionAllocs{T}
         dda.Δxy_aff .*= pad.d4
         ldiv!(pad.K_fact, dda.Δxy_aff) 
         dda.Δxy_aff .*= pad.d4
-    elseif step == :init
-        ldiv!(pad.K_fact, itd.Δxy)
     else
         itd.Δxy .*= pad.d4
         ldiv!(pad.K_fact, itd.Δxy)
         itd.Δxy .*= pad.d4
-        div_D4_K_D4!(pad.K.colptr, pad.K.rowval, pad.K.nzval, pad.d4, id.nvar+id.ncon)
     end
     return 0
 end
@@ -134,7 +133,7 @@ function update_pad!(pad :: PreallocatedData_K2{T}, dda :: DescentDirectionAlloc
     end
 
     out = factorize_K2!(pad.K, pad.K_fact, pad.D, pad.diag_Q, pad.diagind_K, pad.regu, 
-                        pt.s_l, pt.s_u, itd.x_m_lvar, itd.uvar_m_x, pad.d4, pad.r_k, id.ilow, id.iupp, 
+                        pt.s_l, pt.s_u, itd.x_m_lvar, itd.uvar_m_x, pad.d4, id.ilow, id.iupp, 
                         id.ncon, id.nvar, cnts, itd.qp, T, T0) # update D and factorize K
 
     if out == 1 
@@ -196,11 +195,11 @@ function fill_K2!(K_colptr, K_rowval, K_nzval, D, Q_colptr, Q_rowval, Q_nzval,
     end   
 end
 
-function create_K2(id, D, Q, AT, diag_Q, regu)
+function create_K2(id, D, Q, AT, diag_Q, regul)
     # for classic regul only
     n_nz = length(D) - length(diag_Q.nzind) + length(AT.nzval) + length(Q.nzval) 
     T = eltype(D)
-    if regu.regul == :classic
+    if regul == :classic
         n_nz += id.ncon
     end
     K_colptr = Vector{Int}(undef, id.ncon+id.nvar+1) 
@@ -211,28 +210,27 @@ function create_K2(id, D, Q, AT, diag_Q, regu)
     # [0        δI]
 
     fill_K2!(K_colptr, K_rowval, K_nzval, D, Q.colptr, Q.rowval, Q.nzval,
-             AT.colptr, AT.rowval, AT.nzval, diag_Q.nzind, regu.δ, id.ncon, id.nvar, regu.regul)
+             AT.colptr, AT.rowval, AT.nzval, diag_Q.nzind, zero(T), id.ncon, id.nvar, regul)
 
-    return SparseMatrixCSC(id.ncon+id.nvar, id.ncon+id.nvar,
-                           K_colptr, K_rowval, K_nzval)
+    return SparseMatrixCSC(id.ncon+id.nvar, id.ncon+id.nvar, K_colptr, K_rowval, K_nzval)
 end
 
 # iteration functions for the K2 system
-function factorize_K2!(K, K_fact, D, diag_Q , diagind_K, regu, s_l, s_u, x_m_lvar, uvar_m_x, d4, r_k,
+function factorize_K2!(K, K_fact, D, diag_Q , diagind_K, regu, s_l, s_u, x_m_lvar, uvar_m_x, d4,
                        ilow, iupp, ncon, nvar, cnts, qp, T, T0) 
 
     if regu.regul == :classic
         D .= -regu.ρ
-        K.nzval[view(diagind_K, nvar+1:ncon+nvar)] .= regu.δ
+        K.nzval[view(diagind_K, nvar+1:ncon+nvar)] .= @views regu.δ .* d4[nvar+1:nvar+ncon]
     else
         D .= zero(T)
     end
     D[ilow] .-= s_l ./ x_m_lvar
     D[iupp] .-= s_u ./ uvar_m_x
     D[diag_Q.nzind] .-= diag_Q.nzval
-    K.nzval[view(diagind_K,1:nvar)] = D 
+    K.nzval[view(diagind_K,1:nvar)] .= @views D .* d4[1:nvar] 
 
-    scaling_K_Ruiz!(K, d4, r_k, nvar+ncon, T(1.0e-2))
+    # scaling_K_Ruiz!(K, d4, r_k, nvar+ncon, T(1.0e-2))
 
     if regu.regul == :dynamic
         Amax = @views norm(K.nzval[diagind_K], Inf)
