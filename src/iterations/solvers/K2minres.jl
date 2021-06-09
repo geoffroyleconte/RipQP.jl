@@ -6,13 +6,12 @@ struct K2minresParams <: SolverParams
     rtol :: Float64
 end
 
-function K2minresParams(; preconditioner = :LLDL, atol :: T = 1.0e-6, rtol :: T = 1.0e-6) where {T<:Real} 
+function K2minresParams(; preconditioner = :Jacobi, atol :: T = 1.0e-6, rtol :: T = 1.0e-6) where {T<:Real} 
     return K2minresParams(preconditioner, atol, rtol)
 end
 
 mutable struct PreallocatedData_K2minres{T<:Real} <: PreallocatedData{T} 
-    # pdat             :: PreconditionerDataK2{T}
-    # P                :: LinearOperator{T}
+    pdat             :: PreconditionerDataK2{T}
     D                :: Vector{T}                                        # temporary top-left diagonal
     rhs              :: Vector{T}
     regu             :: Regularization{T}
@@ -56,10 +55,9 @@ function PreallocatedData(sp :: K2minresParams, fd :: QM_FloatData{T}, id :: QM_
   rhs = zeros(T, id.nvar+id.ncon)
   MS = MinresSolver(K, rhs)
 
-  # pdat, P = eval(sp.preconditioner)(id, regu, D, K)
+  pdat = eval(sp.preconditioner)(id, regu, D, K)
 
-  return PreallocatedData_K2minres(#pdat,
-                                  #  P,
+  return PreallocatedData_K2minres(pdat,
                                    D,
                                    rhs, 
                                    regu,
@@ -85,7 +83,7 @@ function solver!(pad :: PreallocatedData_K2minres{T}, dda :: DescentDirectionAll
   if rhsNorm != zero(T)
     pad.rhs ./= rhsNorm
   end
-  (pad.MS.x, pad.MS.stats) = minres!(pad.MS, Symmetric(pad.K, :U), pad.rhs)#, M=pad.P)
+  (pad.MS.x, pad.MS.stats) = minres!(pad.MS, Symmetric(pad.K, :U), pad.rhs, M=pad.pdat.P)
   if rhsNorm != zero(T)
     pad.MS.x .*= rhsNorm
   end
@@ -113,10 +111,7 @@ function update_pad!(pad :: PreallocatedData_K2minres{T}, dda :: DescentDirectio
     # pad.D[pad.diag_Q.nzind] .-= pad.diag_Q.nzval
     pad.K.nzval[view(pad.diagind_K,1:id.nvar)] = pad.D 
 
-    # update_preconditioner!(pad.pdat, pad, itd, pt, id, cnts)
-    
-    # pad.opK = PreallocatedLinearOperator(pad.y_opK, Symmetric(pad.K, :U))
-    # pad.opK = PreallocatedLinearOperator(pad.y_opK, Symmetric(pad.K+pad.K'-Diagonal(pad.K), :U))
+    update_preconditioner!(pad.pdat, pad, itd, pt, id, cnts)
 
     return 0
 end
