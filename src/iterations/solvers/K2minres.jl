@@ -2,12 +2,12 @@ export K2minresParams
 
 struct K2minresParams <: SolverParams
     preconditioner :: Symbol
-    atol :: Float64 
-    rtol :: Float64
+    ratol           :: Float64 
+    rrtol           :: Float64
 end
 
-function K2minresParams(; preconditioner = :Jacobi, atol :: T = 1.0e-6, rtol :: T = 1.0e-6) where {T<:Real} 
-    return K2minresParams(preconditioner, atol, rtol)
+function K2minresParams(; preconditioner = :Schur, ratol :: T = 1.0e-6, rrtol :: T = 1.0e-6) where {T<:Real} 
+    return K2minresParams(preconditioner, ratol, rrtol)
 end
 
 mutable struct PreallocatedData_K2minres{T<:Real} <: PreallocatedData{T} 
@@ -15,10 +15,12 @@ mutable struct PreallocatedData_K2minres{T<:Real} <: PreallocatedData{T}
     D                :: Vector{T}                                        # temporary top-left diagonal
     rhs              :: Vector{T}
     regu             :: Regularization{T}
-    diagind_Q        :: StepRange{Int64, Int64} # Q diagonal indices
+    diagind_Q      #  :: StepRange{Int64, Int64} # Q diagonal indices
     K                :: SparseMatrixCSC{T,Int} # augmented matrix          
     MS               :: MinresSolver{T, Vector{T}}
     diagind_K        :: Vector{Int} # diagonal indices of J
+    ratol            :: T
+    rrtol            :: T
 end
 
 
@@ -46,8 +48,8 @@ function PreallocatedData(sp :: K2minresParams, fd :: QM_FloatData{T}, id :: QM_
     )
     D .= -T(1.0e-2)
   end
-  # diag_Q = get_diag_Q(fd.Q.colptr, fd.Q.rowval, fd.Q.nzval, id.nvar)
-  diagind_Q = diagind(fd.Q)
+  diagind_Q = get_diag_Q(fd.Q.colptr, fd.Q.rowval, fd.Q.nzval, id.nvar)
+  # diagind_Q = diagind(fd.Q)
   K = [.-fd.Q .+ D                       fd.AT;
        spzeros(T, id.ncon, id.nvar)  regu.δ * I]
   diagind_K = get_diag_sparseCSC(K.colptr, id.ncon+id.nvar)
@@ -55,7 +57,7 @@ function PreallocatedData(sp :: K2minresParams, fd :: QM_FloatData{T}, id :: QM_
   rhs = zeros(T, id.nvar+id.ncon)
   MS = MinresSolver(K, rhs)
 
-  pdat = eval(sp.preconditioner)(id, regu, D, K)
+  pdat = eval(sp.preconditioner)(id, fd, regu, D, K)
 
   return PreallocatedData_K2minres(pdat,
                                    D,
@@ -65,6 +67,8 @@ function PreallocatedData(sp :: K2minresParams, fd :: QM_FloatData{T}, id :: QM_
                                    K, #K
                                    MS, #K_fact
                                    diagind_K, #diagind_K
+                                   sp.ratol,
+                                   sp.rrtol,
                                    )
 end
 
@@ -83,7 +87,8 @@ function solver!(pad :: PreallocatedData_K2minres{T}, dda :: DescentDirectionAll
   if rhsNorm != zero(T)
     pad.rhs ./= rhsNorm
   end
-  (pad.MS.x, pad.MS.stats) = minres!(pad.MS, Symmetric(pad.K, :U), pad.rhs, M=pad.pdat.P)
+  (pad.MS.x, pad.MS.stats) = minres!(pad.MS, Symmetric(pad.K, :U), pad.rhs, M=pad.pdat.P, 
+                                     verbose=0, atol=zero(T), rtol=zero(T), ratol=pad.ratol, rrtol=pad.rrtol)
   if rhsNorm != zero(T)
     pad.MS.x .*= rhsNorm
   end
@@ -104,14 +109,14 @@ function update_pad!(pad :: PreallocatedData_K2minres{T}, dda :: DescentDirectio
         update_regu!(pad.regu) 
     end
 
-    pad.D .= -pad.regu.ρ .- fd.Q[pad.diagind_Q]
+    pad.D .= -pad.regu.ρ #.- fd.Q[pad.diagind_Q]
     pad.K.nzval[view(pad.diagind_K, id.nvar+1:id.ncon+id.nvar)] .= pad.regu.δ
     pad.D[id.ilow] .-= pt.s_l ./ itd.x_m_lvar
     pad.D[id.iupp] .-= pt.s_u ./ itd.uvar_m_x
-    # pad.D[pad.diag_Q.nzind] .-= pad.diag_Q.nzval
+    pad.D[pad.diagind_Q.nzind] .-= pad.diagind_Q.nzval
     pad.K.nzval[view(pad.diagind_K,1:id.nvar)] = pad.D 
 
-    update_preconditioner!(pad.pdat, pad, itd, pt, id, cnts)
+    update_preconditioner!(pad.pdat, pad, itd, pt, id, fd, cnts)
 
     return 0
 end

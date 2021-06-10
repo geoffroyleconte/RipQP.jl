@@ -4,7 +4,7 @@ include("regularization.jl")
 include("system_write.jl")
 include("solvers/K2LDL.jl")
 include("solvers/K2_5LDL.jl")
-include("solvers/preconditionners.jl")
+include("solvers/preconditioners.jl")
 include("solvers/K2minres.jl")
 
 function compute_α_dual(v, dir_v)
