@@ -46,9 +46,9 @@ function compute_α_primal(v, dir_v, lvar, uvar)
 end
 
 @inline function compute_αs(x, s_l, s_u, lvar, uvar, Δxy, Δs_l, Δs_u, nvar)
-  α_pri = @views compute_α_primal(x, Δxy[1:nvar], lvar, uvar)
-  α_dual_l = compute_α_dual(s_l, Δs_l)
-  α_dual_u = compute_α_dual(s_u, Δs_u)
+  α_pri = @views compute_α_primal(x, Δxy[1:nvar], lvar, uvar, copy(x))
+  α_dual_l = compute_α_dual(s_l, Δs_l, copy(s_l))
+  α_dual_u = compute_α_dual(s_u, Δs_u, copy(s_u))
   return α_pri, min(α_dual_l, α_dual_u)
 end
 
@@ -63,22 +63,31 @@ function update_pt!(x, y, s_l, s_u, α_pri, α_dual, Δxy, Δs_l, Δs_u, ncon, n
   s_u .= s_u .+ α_dual .* Δs_u
 end
 
+function safe_boundary(v::T) where {T <: Real}
+  if v == 0
+    v = eps(T)^2
+  end
+  return v
+end
+
 # "security" if x is too close from lvar or uvar
 function boundary_safety!(x_m_lvar, uvar_m_x, nlow, nupp, T)
-  if 0 in x_m_lvar
-    @inbounds @simd for i = 1:nlow
-      if x_m_lvar[i] == 0
-        x_m_lvar[i] = eps(T)^2
-      end
-    end
-  end
-  if 0 in uvar_m_x
-    @inbounds @simd for i = 1:nupp
-      if uvar_m_x[i] == 0
-        uvar_m_x[i] = eps(T)^2
-      end
-    end
-  end
+  x_m_lvar .= safe_boundary.(x_m_lvar)
+  uvar_m_x .= safe_boundary.(uvar_m_x)
+  # if 0 in x_m_lvar
+  #   @inbounds @simd for i = 1:nlow
+  #     if x_m_lvar[i] == 0
+  #       x_m_lvar[i] = eps(T)^2
+  #     end
+  #   end
+  # end
+  # if 0 in uvar_m_x
+  #   @inbounds @simd for i = 1:nupp
+  #     if uvar_m_x[i] == 0
+  #       uvar_m_x[i] = eps(T)^2
+  #     end
+  #   end
+  # end
 end
 
 function update_IterData!(itd, pt, fd, id, safety)

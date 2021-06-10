@@ -149,15 +149,10 @@ function get_diag_sparseCSC(M_colptr, n; tri = :U)
   # get diagonal index of M.nzval
   # we assume all columns of M are non empty, and M triangular (:L or :U)
   @assert tri == :U || tri == :L
-  diagind = zeros(Int, n) # square matrix
   if tri == :U
-    @inbounds @simd for i = 1:n
-      diagind[i] = M_colptr[i + 1] - 1
-    end
+    diagind = M_colptr[2:end] .- one(Int)
   else
-    @inbounds @simd for i = 1:n
-      diagind[i] = M_colptr[i]
-    end
+    diagind = M_colptr[1:end-1]
   end
   return diagind
 end

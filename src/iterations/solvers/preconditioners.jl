@@ -51,7 +51,10 @@ function Schur(id :: QM_IntData, fd::QM_FloatData{T}, regu :: Regularization{T},
   dp = similar(D, id.nvar + id.ncon)
   yop = similar(dp)
   update_dp!(dp, fd.AT.colptr, fd.AT.rowval, fd.AT.nzval, D, regu.δ, id.nvar, id.ncon)
-  P = LinearOperator(T, id.nvar + id.ncon, id.nvar + id.ncon, true, true, v -> invschur!(yop, Up, dp, v))
+  P = LinearOperator(T, id.nvar + id.ncon, id.nvar + id.ncon, true, true, v -> invschur!(yop, Up, dp, v))  
+  # ldltest = ldl(Symmetric(K, :U))
+  # ldltest.d .= abs.(ldltest.d)
+  # P = LinearOperator(T, id.nvar + id.ncon, id.nvar + id.ncon, true, true, v -> ldiv!(yop, ldltest, v))
   return SchurData{T}(P, Up, dp, yop)
 end 
 
@@ -60,8 +63,8 @@ function update_preconditioner!(pdat :: SchurData{T}, pad :: PreallocatedData{T}
 
   pad.pdat.Up.nzval .= fd.AT.nzval ./ pad.regu.δ
   update_dp!(pad.pdat.dp, fd.AT.colptr, fd.AT.rowval, fd.AT.nzval, pad.D, pad.regu.δ, id.nvar, id.ncon)
-  ldltest = ldl(Symmetric(pad.K, :U))
-  ldltest.d .= abs.(ldltest.d)
-  pad.pdat.P = LinearOperator(T, id.nvar + id.ncon, id.nvar + id.ncon, true, true, v -> ldiv!(pad.pdat.yop, ldltest, v))
-  # pad.pdat.P = LinearOperator(T, id.nvar + id.ncon, id.nvar + id.ncon, true, true, v -> invschur!(pad.pdat.yop, pad.pdat.Up, pad.pdat.dp, v))
+  # ldltest = ldl(Symmetric(pad.K, :U))
+  # ldltest.d .= abs.(ldltest.d)
+  # pad.pdat.P = LinearOperator(T, id.nvar + id.ncon, id.nvar + id.ncon, true, true, v -> ldiv!(pad.pdat.yop, ldltest, v))
+  pad.pdat.P = LinearOperator(T, id.nvar + id.ncon, id.nvar + id.ncon, true, true, v -> invschur!(pad.pdat.yop, pad.pdat.Up, pad.pdat.dp, v))
 end

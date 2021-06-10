@@ -6,6 +6,7 @@ using LDLFactorizations, LinearOperators, LLSModels, Krylov, NLPModelsModifiers,
 
 export ripqp
 
+include("gpu_utils.jl")
 include("types_definition.jl")
 include("iterations/iterations.jl")
 include("refinement.jl")
