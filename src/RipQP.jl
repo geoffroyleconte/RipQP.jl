@@ -4,9 +4,13 @@ using DelimitedFiles, LinearAlgebra, MatrixMarket, Quadmath, SparseArrays, Stati
 
 using LDLFactorizations, LinearOperators, LLSModels, Krylov, NLPModelsModifiers, QuadraticModels, SolverCore
 
+using Requires
+function __init__()
+  @require CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba" include("gpu_utils.jl")
+end
+
 export ripqp
 
-include("gpu_utils.jl")
 include("types_definition.jl")
 include("iterations/iterations.jl")
 include("refinement.jl")
