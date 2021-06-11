@@ -54,3 +54,15 @@ function compute_α_primal(v, dir_v, lvar, uvar, store_v)
   α_u = minimum(store_v)
   return min(α_l, α_u)
 end
+
+# Infinity norm
+# import LinearAlgebra.norm
+# function LinearAlgebra.norm(v::AbstractVector{T}; p::Real=2) where {T <: Real}
+#   if p == 2
+#     return norm(v)
+#   elseif p == Inf
+#     println("ok")
+#     return maximum(abs.(v))
+#   end
+#   return zero(T)
+# end

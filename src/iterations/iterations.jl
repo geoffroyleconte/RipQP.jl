@@ -6,6 +6,7 @@ include("solvers/K2LDL.jl")
 include("solvers/K2_5LDL.jl")
 include("solvers/preconditioners.jl")
 include("solvers/K2minres.jl")
+include("solvers/K2_5minres.jl")
 
 function compute_α_dual(v, dir_v)
   n = length(v)
@@ -46,9 +47,9 @@ function compute_α_primal(v, dir_v, lvar, uvar)
 end
 
 @inline function compute_αs(x, s_l, s_u, lvar, uvar, Δxy, Δs_l, Δs_u, nvar)
-  α_pri = @views compute_α_primal(x, Δxy[1:nvar], lvar, uvar, copy(x))
-  α_dual_l = compute_α_dual(s_l, Δs_l, copy(s_l))
-  α_dual_u = compute_α_dual(s_u, Δs_u, copy(s_u))
+  α_pri = @views compute_α_primal(x, Δxy[1:nvar], lvar, uvar)
+  α_dual_l = compute_α_dual(s_l, Δs_l)
+  α_dual_u = compute_α_dual(s_u, Δs_u)
   return α_pri, min(α_dual_l, α_dual_u)
 end
 
