@@ -1,3 +1,5 @@
+using .CUDA
+
 function check_bounds(x::T, lvar, uvar) where {T<:Real}
   ϵ = T(1.0e-4)
   if lvar >= x
@@ -57,12 +59,28 @@ end
 
 # Infinity norm
 # import LinearAlgebra.norm
-# function LinearAlgebra.norm(v::AbstractVector{T}; p::Real=2) where {T <: Real}
-#   if p == 2
-#     return norm(v)
-#   elseif p == Inf
-#     println("ok")
-#     return maximum(abs.(v))
-#   end
-#   return zero(T)
-# end
+function LinearAlgebra.norm(v::CUDA.CuVector{T}; p::Real=2) where {T <: Real}
+  if p == 2
+    return norm(v)
+  elseif p == Inf
+    return maximum(abs.(v))
+  end
+  return zero(T)
+end
+
+# preconditioner
+function update_dp!(dp, AT_rowptr, AT_colval, AT_nzval::CuVector{T}, D, δ, nvar, ncon) where T
+
+  function kernel(dp, AT_rowptr, AT_colval, AT_nzval, D, δ, nvar, ncon)
+    index = (blockIdx().x - 1) * blockDim().x + threadIdx().x
+    for j=1:ncon
+      for k=AT_colptr[j] : (AT_colptr[j+1] - 1)
+        i = AT_rowval[k]
+        dp[i] += AT_nzval[k]^2 / δ
+      end
+    end
+    return nothing
+  end
+  threads = min(length(x), 256)
+  blocks = ceil(Int, length(AT_colval)/threads)
+end

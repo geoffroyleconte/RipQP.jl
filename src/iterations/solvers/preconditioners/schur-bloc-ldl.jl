@@ -1,24 +1,3 @@
-abstract type PreconditionerDataK2{T<:Real} end
-
-mutable struct JacobiData{T<:Real} <: PreconditionerDataK2{T}
-  P::LinearOperator{T}
-  invDiagK :: Vector{T}
-end
-
-function Jacobi(id :: QM_IntData, fd::QM_FloatData{T}, regu :: Regularization{T}, D :: Vector{T}, K::SparseMatrixCSC{T, Int}) where {T<:Real} 
-  invDiagK = (one(T)/regu.δ) .* ones(T, id.nvar+id.ncon)
-  invDiagK[1:id.nvar] .= .-one(T) ./ D
-  P = opDiagonal(invDiagK)
-  return JacobiData{T}(P, invDiagK)
-end 
-
-function update_preconditioner!(pdat :: JacobiData{T}, pad :: PreallocatedData{T}, itd :: IterData{T}, 
-                                pt :: Point{T}, id :: QM_IntData, fd:: QM_FloatData{T}, cnts :: Counters) where {T<:Real}
-
-  pad.pdat.invDiagK .= @views abs.(one(T) ./ pad.K.nzval[pad.diagind_K])
-  pad.pdat.P = opDiagonal(pad.pdat.invDiagK)
-end
-
 mutable struct SchurData{T<:Real} <: PreconditionerDataK2{T}
   P::LinearOperator{T}
   Up::SparseMatrixCSC{T,Int}
@@ -26,9 +5,7 @@ mutable struct SchurData{T<:Real} <: PreconditionerDataK2{T}
   yop::Vector{T}
 end
 
-function update_dp!(dp, AT_colptr, AT_rowval, AT_nzval, D, δ, nvar, ncon)
-  dp[1: nvar] .= .-D
-  dp[nvar+1: end] .= δ
+function update_dp!(dp, AT_colptr, AT_rowval, AT_nzval::Vector{T}, D, δ, nvar, ncon) where T
   for j=1:ncon
     for k=AT_colptr[j] : (AT_colptr[j+1] - 1)
       i = AT_rowval[k]
@@ -37,9 +14,7 @@ function update_dp!(dp, AT_colptr, AT_rowval, AT_nzval, D, δ, nvar, ncon)
   end
 end
 
-function update_dp2_5!(dp, AT_colptr, AT_rowval, AT_nzval, D, X1X2, δ, nvar, ncon)
-  dp[1: nvar] .= .-D .* X1X2 .* X1X2
-  dp[nvar+1: end] .= δ
+function update_dp2_5!(dp, AT_colptr, AT_rowval, AT_nzval::Vector{T}, D, X1X2, δ, nvar, ncon) where T
   for j=1:ncon
     for k=AT_colptr[j] : (AT_colptr[j+1] - 1)
       i = AT_rowval[k]
@@ -48,7 +23,7 @@ function update_dp2_5!(dp, AT_colptr, AT_rowval, AT_nzval, D, X1X2, δ, nvar, nc
   end
 end
 
-function scale_U2_5!(U_colptr, U_rowval, U_nzval, X1X2, nvar, ncon)
+function scale_U2_5!(U_colptr, U_rowval, U_nzval::Vector{T}, X1X2, nvar, ncon) where {T}
   for j=(nvar + 1) : (nvar + ncon)
     for k=U_colptr[j] : (U_colptr[j+1] - 1)
       i = U_rowval[k]
@@ -69,6 +44,8 @@ function Schur(id :: QM_IntData, fd::QM_FloatData{T}, regu :: Regularization{T},
   Up.nzval ./= regu.δ
   dp = similar(D, id.nvar + id.ncon)
   yop = similar(dp)
+  dp[1: id.nvar] .= .-D
+  dp[id.nvar+1: end] .= regu.δ
   update_dp!(dp, fd.AT.colptr, fd.AT.rowval, fd.AT.nzval, D, regu.δ, id.nvar, id.ncon)
   P = LinearOperator(T, id.nvar + id.ncon, id.nvar + id.ncon, true, true, v -> invschur!(yop, UnitUpperTriangular(Up), Diagonal(dp), v))  
   # ldltest = ldl(Symmetric(K, :U))
@@ -83,8 +60,12 @@ function update_preconditioner!(pdat :: SchurData{T}, pad :: PreallocatedData{T}
   pad.pdat.Up.nzval .= fd.AT.nzval ./ pad.regu.δ
   if typeof(pad) == PreallocatedData_K2_5minres{T}
     scale_U2_5!(pad.pdat.Up.colptr, pad.pdat.Up.rowval, pad.pdat.Up.nzval, pad.X1X2, id.nvar, id.ncon)
+    pad.pdat.dp[1: id.nvar] .= .-pad.D .* pad.X1X2 .* pad.X1X2
+    pad.pdat.dp[id.nvar+1: end] .= pad.regu.δ
     update_dp2_5!(pad.pdat.dp, fd.AT.colptr, fd.AT.rowval, fd.AT.nzval, pad.D, pad.X1X2, pad.regu.δ, id.nvar, id.ncon)
   else
+    pad.pdat.dp[1: id.nvar] .= .-pad.D
+    pad.pdat.dp[id.nvar+1: end] .= pad.regu.δ
     update_dp!(pad.pdat.dp, fd.AT.colptr, fd.AT.rowval, fd.AT.nzval, pad.D, pad.regu.δ, id.nvar, id.ncon)
   end
   # ldltest = ldl(Symmetric(pad.K, :U))
