@@ -68,19 +68,39 @@ function LinearAlgebra.norm(v::CUDA.CuVector{T}; p::Real=2) where {T <: Real}
   return zero(T)
 end
 
-# preconditioner
-function update_dp!(dp, AT_rowptr, AT_colval, AT_nzval::CuVector{T}, D, δ, nvar, ncon) where T
+@inline function warp_reduce(val)
+  val += shfl_down_sync(0xffffffff, val, 16, 32)
+  val += shfl_down_sync(0xffffffff, val, 8, 32)
+  val += shfl_down_sync(0xffffffff, val, 4, 32)
+  val += shfl_down_sync(0xffffffff, val, 2, 32)
+  val += shfl_down_sync(0xffffffff, val, 1, 32)
+  return val
+end
 
-  function kernel(dp, AT_rowptr, AT_colval, AT_nzval, D, δ, nvar, ncon)
+# preconditioner
+function update_dp!(dp, AT::CUDA.CUSPARSE.CuSparseMatrixCSR{T}, D, δ, nvar, ncon) where T
+
+  function kernel(dp, AT_rowptr, AT_colval, AT_nzval, D, δ, nrows, ncols)
     index = (blockIdx().x - 1) * blockDim().x + threadIdx().x
-    for j=1:ncon
-      for k=AT_colptr[j] : (AT_colptr[j+1] - 1)
-        i = AT_rowval[k]
-        dp[i] += AT_nzval[k]^2 / δ
+    CUDA.assume(warpsize() == 32)
+    warp_size = 32
+    warp_id = thread_id ÷ warp_size
+    i = warp_id + 1
+    lane = (thread_id - 1) % warp_size
+    sum = zero(T)
+    if i <= nrows
+      for k = (AT_rowptr[i] + lane): warp_size: (AT_colptr[i + 1] - 1)
+        sum += AT_nzval[k]^2 / δ
       end
+    end
+    sum = warp_reduce(sum)
+    if lane == 0 && i <= nrows
+      dp[i] = sum
     end
     return nothing
   end
   threads = min(length(x), 256)
-  blocks = ceil(Int, length(AT_colval)/threads)
+  blocks = ceil(Int, length(AT.colval)/threads)
+  @cuda name="dp" threads=threads blocks=blocks kernel(dp, AT.rowPtr, AT.colVal, AT.nzVal, D, δ, size(AT, 1), size(AT, 2))
+  return y2
 end

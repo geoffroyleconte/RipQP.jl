@@ -5,7 +5,7 @@ mutable struct SchurData{T<:Real} <: PreconditionerDataK2{T}
   yop::Vector{T}
 end
 
-function update_dp!(dp, AT_colptr, AT_rowval, AT_nzval::Vector{T}, D, δ, nvar, ncon) where T
+function CPU_update_dp!(dp, AT_colptr, AT_rowval, AT_nzval, δ, nvar, ncon) where T
   for j=1:ncon
     for k=AT_colptr[j] : (AT_colptr[j+1] - 1)
       i = AT_rowval[k]
@@ -14,7 +14,17 @@ function update_dp!(dp, AT_colptr, AT_rowval, AT_nzval::Vector{T}, D, δ, nvar, 
   end
 end
 
-function update_dp2_5!(dp, AT_colptr, AT_rowval, AT_nzval::Vector{T}, D, X1X2, δ, nvar, ncon) where T
+update_dp!(dp, AT::SparseMatrixCSC{T}, δ, nvar, ncon) where T = CPU_update_dp!(
+  dp,
+  AT.colptr,
+  AT.rowval,
+  AT.nzval,
+  δ,
+  nvar,
+  ncon,
+)
+
+function update_dp2_5!(dp, AT_colptr, AT_rowval, AT_nzval::Vector{T}, X1X2, δ, nvar, ncon) where T
   for j=1:ncon
     for k=AT_colptr[j] : (AT_colptr[j+1] - 1)
       i = AT_rowval[k]
@@ -46,7 +56,7 @@ function Schur(id :: QM_IntData, fd::QM_FloatData{T}, regu :: Regularization{T},
   yop = similar(dp)
   dp[1: id.nvar] .= .-D
   dp[id.nvar+1: end] .= regu.δ
-  update_dp!(dp, fd.AT.colptr, fd.AT.rowval, fd.AT.nzval, D, regu.δ, id.nvar, id.ncon)
+  update_dp!(dp, fd.AT, regu.δ, id.nvar, id.ncon)
   P = LinearOperator(T, id.nvar + id.ncon, id.nvar + id.ncon, true, true, v -> invschur!(yop, UnitUpperTriangular(Up), Diagonal(dp), v))  
   # ldltest = ldl(Symmetric(K, :U))
   # ldltest.d .= abs.(ldltest.d)
@@ -62,11 +72,11 @@ function update_preconditioner!(pdat :: SchurData{T}, pad :: PreallocatedData{T}
     scale_U2_5!(pad.pdat.Up.colptr, pad.pdat.Up.rowval, pad.pdat.Up.nzval, pad.X1X2, id.nvar, id.ncon)
     pad.pdat.dp[1: id.nvar] .= .-pad.D .* pad.X1X2 .* pad.X1X2
     pad.pdat.dp[id.nvar+1: end] .= pad.regu.δ
-    update_dp2_5!(pad.pdat.dp, fd.AT.colptr, fd.AT.rowval, fd.AT.nzval, pad.D, pad.X1X2, pad.regu.δ, id.nvar, id.ncon)
+    update_dp2_5!(pad.pdat.dp, fd.AT.colptr, fd.AT.rowval, fd.AT.nzval, pad.X1X2, pad.regu.δ, id.nvar, id.ncon)
   else
     pad.pdat.dp[1: id.nvar] .= .-pad.D
     pad.pdat.dp[id.nvar+1: end] .= pad.regu.δ
-    update_dp!(pad.pdat.dp, fd.AT.colptr, fd.AT.rowval, fd.AT.nzval, pad.D, pad.regu.δ, id.nvar, id.ncon)
+    update_dp!(pad.pdat.dp, fd.AT, pad.regu.δ, id.nvar, id.ncon)
   end
   # ldltest = ldl(Symmetric(pad.K, :U))
   # ldltest.d .= abs.(ldltest.d)
