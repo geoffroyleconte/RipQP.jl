@@ -173,8 +173,14 @@ function iter!(
     out = update_dd!(dda, pt, itd, fd, id, res, pad, cnts, T0)
     out == 1 && break
 
-    α_pri, α_dual =
-      compute_αs(pt.x, pt.s_l, pt.s_u, fd.lvar, fd.uvar, itd.Δxy, itd.Δs_l, itd.Δs_u, id.nvar)
+    if typeof(pt.x) <: Vector
+      α_pri, α_dual =
+        compute_αs(pt.x, pt.s_l, pt.s_u, fd.lvar, fd.uvar, itd.Δxy, itd.Δs_l, itd.Δs_u, id.nvar)
+    else
+      α_pri, α_dual =
+        compute_αs(pt.x, pt.s_l, pt.s_u, fd.lvar, fd.uvar, itd.Δxy, itd.Δs_l, itd.Δs_u, id.nvar,
+                  itd.store_vpri, itd.store_vdual_l, itd.store_vdual_u)
+    end
 
     if cnts.kc > 0   # centrality corrections
       α_pri, α_dual =

@@ -1,5 +1,13 @@
 using .CUDA
 
+function sparse_transpose_dropzeros(rows, cols, vals::CuVector, nrows, ncols) 
+  CPUvals = Vector(vals)
+  MT = sparse(cols, rows, CPUvals, ncols, nrows)
+  dropzeros!(MT)
+  MTGPU = CUDA.CUSPARSE.CuSparseMatrixCSR(MT)
+  return MTGPU
+end
+
 function check_bounds(x::T, lvar, uvar) where {T<:Real}
   ϵ = T(1.0e-4)
   if lvar >= x
@@ -55,6 +63,15 @@ function compute_α_primal(v, dir_v, lvar, uvar, store_v)
   map!(pdir_u, store_v, dir_v, uvar, v)
   α_u = minimum(store_v)
   return min(α_l, α_u)
+end
+
+@inline function compute_αs(x::Vector, s_l::Vector, s_u::Vector, lvar::Vector, uvar::Vector, Δxy::Vector, 
+                            Δs_l::Vector, Δs_u::Vector, nvar, 
+                            store_vpri::CuVector, store_vdual_l::CuVector, store_vdual_u::CuVector)
+  α_pri = @views compute_α_primal(x, Δxy[1:nvar], lvar, uvar, store_vpri)
+  α_dual_l = compute_α_dual(s_l, Δs_l, store_vdual_l)
+  α_dual_u = compute_α_dual(s_u, Δs_u, store_vdual_u)
+  return α_pri, min(α_dual_l, α_dual_u)
 end
 
 # Infinity norm
