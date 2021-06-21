@@ -10,14 +10,14 @@ function K2bicgstabParams(; preconditioner = :BlockJacobi, ratol :: T = 1.0e-10,
     return K2bicgstabParams(preconditioner, ratol, rrtol)
 end
 
-mutable struct PreallocatedData_K2bicgstab{T<:Real} <: PreallocatedData{T} 
-  pdat             :: PreconditionerDataK2{T}
-  D                :: Vector{T}                                        # temporary top-left diagonal
-  rhs              :: Vector{T}
+mutable struct PreallocatedData_K2bicgstab{T<:Real, S, Ssp} <: PreallocatedData{T, S} 
+  pdat             :: PreconditionerDataK2{T, S}
+  D                :: S                                      # temporary top-left diagonal
+  rhs              :: S
   regu             :: Regularization{T}
   diagind_Q        :: StepRange{Int64, Int64} # Q diagonal indices
-  K                :: SparseMatrixCSC{T,Int} # augmented matrix          
-  MS               :: BicgstabSolver{T, Vector{T}}
+  K                :: Ssp # augmented matrix          
+  MS               :: BicgstabSolver{T, S}
   diagind_K        :: StepRange{Int64, Int64} # diagonal indices of J
   ratol            :: T
   rrtol            :: T
@@ -52,10 +52,10 @@ function PreallocatedData(sp :: K2bicgstabParams, fd :: QM_FloatData{T}, id :: Q
   if typeof(fd.c) <: Vector
     K = [.-fd.Q .+ Diagonal(D)                       fd.AT;
         spzeros(T, id.ncon, id.nvar)  regu.δ * I]
+    K .= K .+ K' .- Diagonal(K)
   else
-    K = create_K_GPU(fd.Q, fd.D, regu.δ, fd.AT, id.nvar, id.ncon)
+    K = create_K_GPU(fd.Q, D, regu.δ, fd.AT, id.nvar, id.ncon)
   end
-  K .= K .+ K' .- Diagonal(K)
   diagind_K = diagind(K)
   
   rhs = similar(fd.c, id.nvar+id.ncon)

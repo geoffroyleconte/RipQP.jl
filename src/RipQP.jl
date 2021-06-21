@@ -7,6 +7,7 @@ using LDLFactorizations, LinearOperators, LLSModels, Krylov, NLPModelsModifiers,
 using Requires
 function __init__()
   @require CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba" include("gpu_utils.jl")
+  @require CUDAKernels = "72cfdca4-0801-4ab0-bf6a-d52aa10adc57" using CUDAKernels
 end
 
 export ripqp

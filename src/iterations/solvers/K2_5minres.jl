@@ -10,19 +10,19 @@ function K2_5minresParams(; preconditioner = :Schur, ratol :: T = 1.0e-10, rrtol
     return K2_5minresParams(preconditioner, ratol, rrtol)
 end
 
-mutable struct PreallocatedData_K2_5minres{T<:Real} <: PreallocatedData{T} 
-    pdat             :: PreconditionerDataK2{T}
-    D                :: Vector{T}                                        # temporary top-left diagonal
-    rhs              :: Vector{T}
+mutable struct PreallocatedData_K2_5minres{T<:Real, S, Ssp} <: PreallocatedData{T, S} 
+    pdat             :: PreconditionerDataK2{T, S}
+    D                :: S                                       # temporary top-left diagonal
+    rhs              :: S
     regu             :: Regularization{T}
     diagind_Q        :: StepRange{Int64, Int64} # Q diagonal indices
-    K                :: SparseMatrixCSC{T,Int} # augmented matrix          
-    MS               :: MinresSolver{T, Vector{T}}
+    K                :: Ssp # augmented matrix          
+    MS               :: MinresSolver{T, S}
     diagind_K        :: Vector{Int} # diagonal indices of J
     ratol            :: T
     rrtol            :: T
     K_scaled         :: Bool
-    X1X2             :: Vector{T}
+    X1X2             :: S
 end
 
 

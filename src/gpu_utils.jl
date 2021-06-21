@@ -11,7 +11,8 @@ end
 function create_K_GPU(Q, D::AbstractVector{T}, δ, AT, nvar, ncon) where T
   K = [.-SparseMatrixCSC(Q) .+ Diagonal(Vector(D))   SparseMatrixCSC(AT);
        spzeros(T, ncon, nvar)                               δ * I]
-  return SparseMatrixCSR(K)
+  K .= K .+ K' .- Diagonal(K)
+  return CUDA.CUSPARSE.CuSparseMatrixCSR(K)
 end
 
 function check_bounds(x::T, lvar, uvar) where {T<:Real}

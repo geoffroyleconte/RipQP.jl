@@ -1,4 +1,4 @@
-abstract type PreconditionerDataK2{T<:Real} end
+abstract type PreconditionerDataK2{T<:Real, S} end
 
 include("bloc-jacobi.jl")
 include("jacobi.jl")

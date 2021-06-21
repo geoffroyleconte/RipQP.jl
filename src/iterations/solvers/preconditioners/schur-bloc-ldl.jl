@@ -1,8 +1,8 @@
-mutable struct SchurData{T<:Real} <: PreconditionerDataK2{T}
+mutable struct SchurData{T<:Real, S, Ssp} <: PreconditionerDataK2{T, S}
   P::LinearOperator{T}
-  Up::SparseMatrixCSC{T,Int}
-  dp::Vector{T}
-  yop::Vector{T}
+  Up::Ssp
+  dp::S
+  yop::S
 end
 
 function CPU_update_dp!(dp, AT_colptr, AT_rowval, AT_nzval, δ, nvar, ncon) where T
@@ -48,10 +48,10 @@ function invschur!(yop, Upw, Dp, v)
   ldiv!(Upw', yop)
 end
 
-function Schur(id :: QM_IntData, fd::QM_FloatData{T}, regu :: Regularization{T}, D :: Vector{T}, K::SparseMatrixCSC{T, Int}) where {T<:Real} 
+function Schur(id :: QM_IntData, fd::QM_FloatData{T}, regu::Regularization{T}, D::AbstractVector{T}, K::AbstractMatrix{T}) where {T<:Real} 
   Up = [spzeros(T, id.nvar, id.nvar)                fd.AT;
         spzeros(T, id.ncon, id.nvar)  spzeros(T, id.ncon, id.ncon)]
-  Up.nzval ./= regu.δ
+  Up.nzval ./= regu.δ 
   dp = similar(D, id.nvar + id.ncon)
   yop = similar(dp)
   dp[1: id.nvar] .= .-D
@@ -61,7 +61,7 @@ function Schur(id :: QM_IntData, fd::QM_FloatData{T}, regu :: Regularization{T},
   # ldltest = ldl(Symmetric(K, :U))
   # ldltest.d .= abs.(ldltest.d)
   # P = LinearOperator(T, id.nvar + id.ncon, id.nvar + id.ncon, true, true, v -> ldiv!(yop, ldltest, v))
-  return SchurData{T}(P, Up, dp, yop)
+  return SchurData{T, typeof(fd.c), typeof(fd.Q)}(P, Up, dp, yop)
 end 
 
 function update_preconditioner!(pdat :: SchurData{T}, pad :: PreallocatedData{T}, itd :: IterData{T}, 
