@@ -49,8 +49,12 @@ function PreallocatedData(sp :: K2bicgstabParams, fd :: QM_FloatData{T}, id :: Q
     D .= -T(1.0e-2)
   end
   diagind_Q = diagind(fd.Q)
-  K = [.-fd.Q .+ Diagonal(D)                       fd.AT;
-       spzeros(T, id.ncon, id.nvar)  regu.δ * I]
+  if typeof(fd.c) <: Vector
+    K = [.-fd.Q .+ Diagonal(D)                       fd.AT;
+        spzeros(T, id.ncon, id.nvar)  regu.δ * I]
+  else
+    K = create_K_GPU(fd.Q, fd.D, regu.δ, fd.AT, id.nvar, id.ncon)
+  end
   K .= K .+ K' .- Diagonal(K)
   diagind_K = diagind(K)
   
