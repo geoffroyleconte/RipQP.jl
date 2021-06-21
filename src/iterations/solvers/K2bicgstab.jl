@@ -1,26 +1,26 @@
 export K2bicgstabParams
 
 struct K2bicgstabParams <: SolverParams
-    preconditioner :: Symbol
-    ratol           :: Float64 
-    rrtol           :: Float64
+  preconditioner :: Symbol
+  ratol           :: Float64 
+  rrtol           :: Float64       
 end
 
-function K2bicgstabParams(; preconditioner = :Schur, ratol :: T = 1.0e-10, rrtol :: T = 1.0e-10) where {T<:Real} 
+function K2bicgstabParams(; preconditioner = :BlockJacobi, ratol :: T = 1.0e-10, rrtol :: T = 1.0e-10, gpu :: Bool = false) where {T<:Real} 
     return K2bicgstabParams(preconditioner, ratol, rrtol)
 end
 
 mutable struct PreallocatedData_K2bicgstab{T<:Real} <: PreallocatedData{T} 
-    pdat             :: PreconditionerDataK2{T}
-    D                :: Vector{T}                                        # temporary top-left diagonal
-    rhs              :: Vector{T}
-    regu             :: Regularization{T}
-    diagind_Q        :: StepRange{Int64, Int64} # Q diagonal indices
-    K                :: SparseMatrixCSC{T,Int} # augmented matrix          
-    MS               :: BicgstabSolver{T, Vector{T}}
-    diagind_K        :: StepRange{Int64, Int64} # diagonal indices of J
-    ratol            :: T
-    rrtol            :: T
+  pdat             :: PreconditionerDataK2{T}
+  D                :: Vector{T}                                        # temporary top-left diagonal
+  rhs              :: Vector{T}
+  regu             :: Regularization{T}
+  diagind_Q        :: StepRange{Int64, Int64} # Q diagonal indices
+  K                :: SparseMatrixCSC{T,Int} # augmented matrix          
+  MS               :: BicgstabSolver{T, Vector{T}}
+  diagind_K        :: StepRange{Int64, Int64} # diagonal indices of J
+  ratol            :: T
+  rrtol            :: T
 end
 
 
