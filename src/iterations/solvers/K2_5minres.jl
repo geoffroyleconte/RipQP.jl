@@ -55,7 +55,7 @@ function PreallocatedData(sp :: K2_5minresParams, fd :: QM_FloatData{T}, id :: Q
        spzeros(T, id.ncon, id.nvar)  regu.δ * I]
   diagind_K = get_diag_sparseCSC(K.colptr, id.ncon+id.nvar)
   
-  rhs = zeros(T, id.nvar+id.ncon)
+  rhs = similar(fd.c, id.nvar+id.ncon)
   MS = MinresSolver(K, rhs)
 
   pdat = eval(sp.preconditioner)(id, fd, regu, D, K)

@@ -64,7 +64,11 @@ function ripqp(
     QM.meta.jfix,
   )
 
-  SlackModel!(QM) # add slack variables to the problem if QM.meta.lcon != QM.meta.ucon
+  if typeof(QM.data.c) <: Vector
+    SlackModel!(QM) # add slack variables to the problem if QM.meta.lcon != QM.meta.ucon
+  else
+    QM = SlackModel(QM)
+  end
 
   fd_T0, id, T = get_QM_data(QM)
   T0 = T # T0 is the data type, in mode :multi T will gradually increase to T0

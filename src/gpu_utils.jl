@@ -8,6 +8,12 @@ function sparse_transpose_dropzeros(rows, cols, vals::CuVector, nrows, ncols)
   return MTGPU
 end
 
+function create_K_GPU(Q, D::AbstractVector{T}, δ, AT, nvar, ncon) where T
+  K = [.-SparseMatrixCSC(Q) .+ Diagonal(Vector(D))   SparseMatrixCSC(AT);
+       spzeros(T, ncon, nvar)                               δ * I]
+  return SparseMatrixCSR(K)
+end
+
 function check_bounds(x::T, lvar, uvar) where {T<:Real}
   ϵ = T(1.0e-4)
   if lvar >= x

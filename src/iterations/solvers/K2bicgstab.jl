@@ -54,7 +54,7 @@ function PreallocatedData(sp :: K2bicgstabParams, fd :: QM_FloatData{T}, id :: Q
   K .= K .+ K' .- Diagonal(K)
   diagind_K = diagind(K)
   
-  rhs = zeros(T, id.nvar+id.ncon)
+  rhs = similar(fd.c, id.nvar+id.ncon)
   MS = BicgstabSolver(K, rhs)
 
   pdat = eval(sp.preconditioner)(id, fd, regu, D, K)
