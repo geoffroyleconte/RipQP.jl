@@ -100,8 +100,13 @@ function update_IterData!(itd, pt, fd, id, safety)
   itd.Ax = mul!(itd.Ax, fd.AT', pt.x)
   itd.cTx = dot(fd.c, pt.x)
   itd.pri_obj = itd.xTQx_2 + itd.cTx + fd.c0
-  itd.dual_obj = @views dot(fd.b, pt.y) - itd.xTQx_2 + dot(pt.s_l, fd.lvar[id.ilow]) -
-         dot(pt.s_u, fd.uvar[id.iupp]) + fd.c0
+  if typeof(pt.x) <: Vector
+    itd.dual_obj = @views dot(fd.b, pt.y) - itd.xTQx_2 + dot(pt.s_l, fd.lvar[id.ilow]) -
+          dot(pt.s_u, fd.uvar[id.iupp]) + fd.c0
+  else
+    itd.dual_obj = dual_obj_gpu(fd.b, pt.y, itd.xTQx_2, pt.s_l, pt.s_u, fd.lvar, fd.uvar, fd.c0, id.ilow, id.iupp, 
+                                itd.store_vdual_l, itd.store_vdual_u)
+  end
   itd.pdd = abs(itd.pri_obj - itd.dual_obj) / (one(T) + abs(itd.pri_obj))
 end
 
@@ -133,7 +138,6 @@ function update_data!(
   update_IterData!(itd, pt, fd, id, true)
 
   #update Residuals
-  res.n_Δx = @views α_pri * norm(itd.Δxy[1:(id.nvar)])
   res.rb .= itd.Ax .- fd.b
   res.rc .= itd.ATy .- itd.Qx .- fd.c
   res.rc[id.ilow] .+= pt.s_l
@@ -178,8 +182,8 @@ function iter!(
         compute_αs(pt.x, pt.s_l, pt.s_u, fd.lvar, fd.uvar, itd.Δxy, itd.Δs_l, itd.Δs_u, id.nvar)
     else
       α_pri, α_dual =
-        compute_αs(pt.x, pt.s_l, pt.s_u, fd.lvar, fd.uvar, itd.Δxy, itd.Δs_l, itd.Δs_u, id.nvar,
-                  itd.store_vpri, itd.store_vdual_l, itd.store_vdual_u)
+        compute_αs_gpu(pt.x, pt.s_l, pt.s_u, fd.lvar, fd.uvar, itd.Δxy, itd.Δs_l, itd.Δs_u, id.nvar,
+                      itd.store_vpri, itd.store_vdual_l, itd.store_vdual_u)
     end
 
     if cnts.kc > 0   # centrality corrections
@@ -193,7 +197,7 @@ function iter!(
     (cnts.kc == -1) && nb_corrector_steps!(cnts, time_fact, time_solve)
 
     sc.optimal = itd.pdd < ϵ.pdd && res.rbNorm < ϵ.tol_rb && res.rcNorm < ϵ.tol_rc
-    sc.small_Δx, sc.small_μ = res.n_Δx < ϵ.Δx, itd.μ < ϵ.μ
+    sc.small_μ = itd.μ < ϵ.μ
 
     cnts.k += 1
     if T == Float32
@@ -209,7 +213,7 @@ function iter!(
 
     if display == true
       @info log_row(
-        Any[cnts.k, itd.pri_obj, itd.pdd, res.rbNorm, res.rcNorm, res.n_Δx, α_pri, α_dual, itd.μ],
+        Any[cnts.k, itd.pri_obj, itd.pdd, res.rbNorm, res.rcNorm, α_pri, α_dual, itd.μ],
       )
     end
   end

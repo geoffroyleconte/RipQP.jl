@@ -277,16 +277,14 @@ mutable struct Residuals{T <: Real, S}
   rc::S # dual residuals -Qx + Aᵀy + s_l - s_u
   rbNorm::T # ||rb||
   rcNorm::T # ||rc||
-  n_Δx::T # ||Δx||
   function Residuals(
     rb::AbstractVector{T},
     rc::AbstractVector{T},
     rbNorm::T,
     rcNorm::T,
-    n_Δx::T,
   ) where {T <: Real}
     S = typeof(rb)
-    return new{T, S}(rb, rc, rbNorm, rcNorm, n_Δx)
+    return new{T, S}(rb, rc, rbNorm, rcNorm)
   end
 end
 
@@ -423,7 +421,6 @@ abstract type PreallocatedData{T <: Real, S} end
 
 mutable struct StopCrit{T}
   optimal::Bool
-  small_Δx::Bool
   small_μ::Bool
   tired::Bool
   max_iter::Int

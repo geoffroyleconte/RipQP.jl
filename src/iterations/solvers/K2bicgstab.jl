@@ -15,10 +15,11 @@ mutable struct PreallocatedData_K2bicgstab{T<:Real, S, Ssp} <: PreallocatedData{
   D                :: S                                      # temporary top-left diagonal
   rhs              :: S
   regu             :: Regularization{T}
-  diagind_Q        :: StepRange{Int64, Int64} # Q diagonal indices
+  diag_Q           :: S # Q diagonal indices
   K                :: Ssp # augmented matrix          
   MS               :: BicgstabSolver{T, S}
-  diagind_K        :: StepRange{Int64, Int64} # diagonal indices of J
+  diagind_K1       :: Vector{Int}
+  diagind_K2       :: Vector{Int}
   ratol            :: T
   rrtol            :: T
 end
@@ -48,15 +49,18 @@ function PreallocatedData(sp :: K2bicgstabParams, fd :: QM_FloatData{T}, id :: Q
     )
     D .= -T(1.0e-2)
   end
-  diagind_Q = diagind(fd.Q)
+
+  diag_Q = similar(fd.c)
   if typeof(fd.c) <: Vector
+    diag_Q .= fd.Q[diagind(fd.Q)]
     K = [.-fd.Q .+ Diagonal(D)                       fd.AT;
         spzeros(T, id.ncon, id.nvar)  regu.δ * I]
     K .= K .+ K' .- Diagonal(K)
+    diagind_K1, diagind_K2 = get_diagK_ptr(K.colptr, K.rowval, id.nvar, id.ncon)
   else
-    K = create_K_GPU(fd.Q, D, regu.δ, fd.AT, id.nvar, id.ncon)
+    diag_Q .= get_diag_Q(fd.Q)
+    K, diagind_K1, diagind_K2 = create_K_GPU(fd.Q, D, regu.δ, fd.AT, id.nvar, id.ncon)
   end
-  diagind_K = diagind(K)
   
   rhs = similar(fd.c, id.nvar+id.ncon)
   MS = BicgstabSolver(K, rhs)
@@ -67,10 +71,11 @@ function PreallocatedData(sp :: K2bicgstabParams, fd :: QM_FloatData{T}, id :: Q
                                      D,
                                      rhs, 
                                      regu,
-                                     diagind_Q, #diag_Q
+                                     diag_Q, #diag_Q
                                      K, #K
                                      MS, #K_fact
-                                     diagind_K, #diagind_K
+                                     diagind_K1,
+                                     diagind_K2,
                                      sp.ratol,
                                      sp.rrtol,
                                      )
@@ -113,13 +118,36 @@ function update_pad!(pad :: PreallocatedData_K2bicgstab{T}, dda :: DescentDirect
         update_regu!(pad.regu) 
     end
 
-    pad.D .= -pad.regu.ρ .- fd.Q[pad.diagind_Q]
-    pad.K[view(pad.diagind_K, id.nvar+1:id.ncon+id.nvar)] .= pad.regu.δ
+    pad.D .= -pad.regu.ρ .- pad.diag_Q
     pad.D[id.ilow] .-= pt.s_l ./ itd.x_m_lvar
     pad.D[id.iupp] .-= pt.s_u ./ itd.uvar_m_x
-    pad.K[view(pad.diagind_K,1:id.nvar)] = pad.D 
+    if typeof(fd.c) <: Vector
+      pad.K.nzval[pad.diagind_K1] = pad.D
+      pad.K.nzval[pad.diagind_K2] .= pad.regu.δ
+    else
+      update_diagK_gpu!(pad.K, pad.diagind_K1, pad.diagind_K2, pad.D, pad.regu.δ)
+    end
 
     update_preconditioner!(pad.pdat, pad, itd, pt, id, fd, cnts)
 
     return 0
+end
+
+function get_diagK_ptr(K_colptr, K_rowval, nvar, ncon)
+  diagindK1, diagindK2 = zeros(Int, nvar), zeros(Int, ncon)
+  for j=1:nvar
+    for k=K_colptr[j]: (K_colptr[j+1]-1)
+      if j == K_rowval[k]
+        diagindK1[j] = k
+      end
+    end
+  end
+  for j=(nvar+1): (nvar+ncon)
+    for k=K_colptr[j]: (K_colptr[j+1]-1)
+      if j == K_rowval[k]
+        diagindK2[j-nvar] = k
+      end
+    end
+  end
+  return diagindK1, diagindK2
 end
