@@ -8,7 +8,7 @@ mutable struct BlockJacobiData{T<:Real, S, AT, GAT, VI, GVI, MT, GMT, MI, GMI, S
 end
 
 function BlockJacobi(id :: QM_IntData, fd::QM_FloatData{T}, regu :: Regularization{T}, D :: AbstractVector{T}, K::AbstractMatrix{T}) where {T<:Real} 
-  nblocks = 4
+  nblocks = div(id.ncon + id.nvar, 16)
   if typeof(fd.c) <: Vector
     BJP = ExaPF.LS.BlockJacobiPreconditioner(K, nblocks, CPU())
     ExaPF.LS.update(BJP, K, CPU())
