@@ -1,30 +1,30 @@
-export K2minresParams
+export K2minresqlpParams
 
-struct K2minresParams <: SolverParams
+struct K2minresqlpParams <: SolverParams
     preconditioner :: Symbol
-    ratol           :: Float64 
-    rrtol           :: Float64
+    atol           :: Float64 
+    rtol           :: Float64
 end
 
-function K2minresParams(; preconditioner = :Schur, ratol :: T = 1.0e-10, rrtol :: T = 1.0e-10) where {T<:Real} 
-    return K2minresParams(preconditioner, ratol, rrtol)
+function K2minresqlpParams(; preconditioner = :Schur, atol :: T = 1.0e-10, rtol :: T = 1.0e-10) where {T<:Real} 
+    return K2minresqlpParams(preconditioner, atol, rtol)
 end
 
-mutable struct PreallocatedData_K2minres{T<:Real, S, Ssp} <: PreallocatedData{T, S} 
+mutable struct PreallocatedData_K2minresqlp{T<:Real, S, Ssp} <: PreallocatedData{T, S} 
     pdat             :: PreconditionerDataK2{T, S}
     D                :: S                                  # temporary top-left diagonal
     rhs              :: S
     regu             :: Regularization{T}
     diagind_Q        :: StepRange{Int64, Int64} # Q diagonal indices
     K                :: Ssp # augmented matrix          
-    MS               :: MinresSolver{T, S}
+    MS               :: MinresQlpSolver{T, S}
     diagind_K        :: Vector{Int} # diagonal indices of J
-    ratol            :: T
-    rrtol            :: T
+    atol            :: T
+    rtol            :: T
 end
 
 
-function PreallocatedData(sp :: K2minresParams, fd :: QM_FloatData{T}, id :: QM_IntData, 
+function PreallocatedData(sp :: K2minresqlpParams, fd :: QM_FloatData{T}, id :: QM_IntData, 
                           iconf :: InputConfig{Tconf}) where {T<:Real, Tconf<:Real}
 
   # init Regularization values
@@ -33,8 +33,8 @@ function PreallocatedData(sp :: K2minresParams, fd :: QM_FloatData{T}, id :: QM_
     regu = Regularization(
       T(sqrt(eps()) * 1e5),
       T(sqrt(eps()) * 1e5),
-      1e1 * sqrt(eps(T)),
-      1e1 * sqrt(eps(T)),
+      1e0 * sqrt(eps(T)),
+      1e0 * sqrt(eps(T)),
       :classic,
     )
     D .= -T(1.0e0) / 2
@@ -54,11 +54,11 @@ function PreallocatedData(sp :: K2minresParams, fd :: QM_FloatData{T}, id :: QM_
   diagind_K = get_diag_sparseCSC(K.colptr, id.ncon+id.nvar)
   
   rhs = similar(fd.c, id.nvar+id.ncon)
-  MS = MinresSolver(K, rhs)
+  MS = MinresQlpSolver(K, rhs)
 
   pdat = eval(sp.preconditioner)(id, fd, regu, D, K)
 
-  return PreallocatedData_K2minres(pdat,
+  return PreallocatedData_K2minresqlp(pdat,
                                    D,
                                    rhs, 
                                    regu,
@@ -66,12 +66,12 @@ function PreallocatedData(sp :: K2minresParams, fd :: QM_FloatData{T}, id :: QM_
                                    K, #K
                                    MS, #K_fact
                                    diagind_K, #diagind_K
-                                   sp.ratol,
-                                   sp.rrtol,
+                                   sp.atol,
+                                   sp.rtol,
                                    )
 end
 
-function solver!(pad :: PreallocatedData_K2minres{T}, dda :: DescentDirectionAllocs{T}, pt :: Point{T}, itd :: IterData{T}, 
+function solver!(pad :: PreallocatedData_K2minresqlp{T}, dda :: DescentDirectionAllocs{T}, pt :: Point{T}, itd :: IterData{T}, 
                  fd :: Abstract_QM_FloatData{T}, id :: QM_IntData, res :: Residuals{T}, cnts :: Counters, T0 :: DataType, 
                  step :: Symbol) where {T<:Real} 
 
@@ -86,8 +86,8 @@ function solver!(pad :: PreallocatedData_K2minres{T}, dda :: DescentDirectionAll
   if rhsNorm != zero(T)
     pad.rhs ./= rhsNorm
   end
-  (pad.MS.x, pad.MS.stats) = minres!(pad.MS, Symmetric(pad.K, :U), pad.rhs, M=pad.pdat.P, 
-                                     verbose=0, atol=zero(T), rtol=zero(T), ratol=pad.ratol, rrtol=pad.rrtol)
+  (pad.MS.x, stats) = minres_qlp!(pad.MS, Symmetric(pad.K, :U), pad.rhs, M=pad.pdat.P, 
+                                     verbose=0, atol=pad.atol, rtol=pad.rtol)
   if rhsNorm != zero(T)
     pad.MS.x .*= rhsNorm
   end
@@ -101,7 +101,7 @@ function solver!(pad :: PreallocatedData_K2minres{T}, dda :: DescentDirectionAll
   return 0
 end
 
-function update_pad!(pad :: PreallocatedData_K2minres{T}, dda :: DescentDirectionAllocs{T}, pt :: Point{T}, itd :: IterData{T}, 
+function update_pad!(pad :: PreallocatedData_K2minresqlp{T}, dda :: DescentDirectionAllocs{T}, pt :: Point{T}, itd :: IterData{T}, 
                      fd :: Abstract_QM_FloatData{T}, id :: QM_IntData, res :: Residuals{T}, cnts :: Counters, T0 :: DataType) where {T<:Real}
 
     if cnts.k != 0
