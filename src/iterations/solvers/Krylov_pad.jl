@@ -25,6 +25,21 @@ mutable struct PreallocatedData_K2minres{T <: Real, S, Fv, Fu, Fw} <:
   rtol_min::T
 end
 
+mutable struct PreallocatedData_K2minresRegu{T <: Real, S, Fv, Fu, Fw} <:
+               PreallocatedData_K2Krylov{T, S}
+  pdat::PreconditionerDataK2{T, S}
+  D::S                                  # temporary top-left diagonal
+  rhs::S
+  regu::Regularization{T}
+  δv::Vector{T}
+  K::LinearOperator{T, Fv, Fu, Fw} # augmented matrix          
+  KS::MinresSolver{T, S}
+  atol::T
+  rtol::T
+  atol_min::T
+  rtol_min::T
+end
+
 mutable struct PreallocatedData_K2_5minres{T <: Real, S, Fv, Fu, Fw} <:
                PreallocatedData_K2_5Krylov{T, S}
   pdat::PreconditionerDataK2{T, S}

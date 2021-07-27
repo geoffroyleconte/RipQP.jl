@@ -4,6 +4,7 @@ authors = ["Geoffroy Leconte <gleconte50@gmail.com> and contributors"]
 version = "0.2.2"
 
 [deps]
+BasicLU = "f55c55da-c227-4c78-8e30-b72a48476979"
 DelimitedFiles = "8bb1440f-4735-579b-a4ab-409b98df4dab"
 Krylov = "ba0b0d4f-ebba-5204-a429-3ac8c609bfb7"
 LDLFactorizations = "40e66cde-538c-5869-a4ad-c39174c6795b"

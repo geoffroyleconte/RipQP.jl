@@ -8,6 +8,7 @@ include("preconditioners/abstract-precond.jl")
 include("solvers/Krylov_pad.jl")
 include("solvers/K2Krylov.jl")
 include("solvers/K2_5Krylov.jl")
+include("solvers/K2KrylovRegu.jl")
 
 function compute_α_dual(v, dir_v)
   n = length(v)
