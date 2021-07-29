@@ -39,19 +39,18 @@ function K2KrylovReguParams(;
   return K2KrylovReguParams(kmethod, preconditioner, atol0, rtol0, atol_min, rtol_min, ρ_min, δ_min)
 end
 
-function solveK2basic(AT0, rhs1, rhs2, M0, δ, atol, rtol)
+function solveK2basic(A0, rhs1, rhs2, M0, δ, atol, rtol)
 
   T = typeof(δ)
   D = Diagonal(1 ./ sqrt.(diag(M0)))
-  AT = D * AT0
-  A = AT' .+ zero(T)
+  A = A0 * D
   rhs1D = D * rhs1
   M = D * M0 * D
 
-  n, m = size(AT)
+  m, n = size(A)
   Abis = [A √δ*I]
   Mbis = [M spzeros(n, m); spzeros(m,n) I]
-  nnzA = length(AT.nzval)
+  nnzA = length(A.nzval)
 
   # Attention : Geoffroy maxvolume_basis s'applique sur A et non Abis !!!
   # La permutation basis s'applique directement sur A si A est de rang plein sinon c'est sur Abis.
@@ -106,8 +105,8 @@ function opK2prod!(
 ) where {T}
   @views mul!(res[1:nvar], Q, v[1:nvar], -α, β)
   res[1:nvar] .+= α .* D .* v[1:nvar]
-  @views mul!(res[1:nvar], A, v[(nvar + 1):end], α, one(T))
-  @views mul!(res[(nvar + 1):end], A', v[1:nvar], α, β)
+  @views mul!(res[1:nvar], A', v[(nvar + 1):end], α, one(T))
+  @views mul!(res[(nvar + 1):end], A, v[1:nvar], α, β)
   res[(nvar + 1):end] .+= @views (α * δv[1]) .* v[(nvar + 1):end]
 end
 
