@@ -98,7 +98,7 @@ function opK2prod!(
   nvar::Int,
   Q::AbstractMatrix{T},
   D::AbstractVector{T},
-  AT::AbstractMatrix{T},
+  A::AbstractMatrix{T},
   δv::AbstractVector{T},
   v::AbstractVector{T},
   α::T,
@@ -106,8 +106,8 @@ function opK2prod!(
 ) where {T}
   @views mul!(res[1:nvar], Q, v[1:nvar], -α, β)
   res[1:nvar] .+= α .* D .* v[1:nvar]
-  @views mul!(res[1:nvar], AT, v[(nvar + 1):end], α, one(T))
-  @views mul!(res[(nvar + 1):end], AT', v[1:nvar], α, β)
+  @views mul!(res[1:nvar], A, v[(nvar + 1):end], α, one(T))
+  @views mul!(res[(nvar + 1):end], A', v[1:nvar], α, β)
   res[(nvar + 1):end] .+= @views (α * δv[1]) .* v[(nvar + 1):end]
 end
 
@@ -141,7 +141,7 @@ function PreallocatedData(
     id.nvar + id.ncon,
     true,
     true,
-    (res, v, α, β) -> opK2prod!(res, id.nvar, fd.Q, D, fd.AT, δv, v, α, β),
+    (res, v, α, β) -> opK2prod!(res, id.nvar, Symmetric(fd.Q, fd.uplo), D, fd.A, δv, v, α, β),
   )
 
   rhs = similar(fd.c, id.nvar + id.ncon)
@@ -186,7 +186,7 @@ function solver!(
   # end
   # 
   if cnts.k > 5
-    dx, dy = solveK2basic(fd.AT, pad.rhs[1:id.nvar], pad.rhs[id.nvar+1: end], 
+    dx, dy = solveK2basic(fd.A, pad.rhs[1:id.nvar], pad.rhs[id.nvar+1: end], 
                           fd.Q - Diagonal(pad.D), pad.regu.δ, pad.atol, pad.rtol)
     if step == :aff
       dda.Δxy_aff[1: id.nvar] .= dx
