@@ -39,7 +39,7 @@ function K2KrylovReguParams(;
   return K2KrylovReguParams(kmethod, preconditioner, atol0, rtol0, atol_min, rtol_min, ρ_min, δ_min)
 end
 
-function solveK2basic(A0, rhs1, rhs2, M0, δ, atol, rtol)
+function solveK2basic(K, A0, rhs1, rhs2, M0, δ, atol, rtol)
 
   T = typeof(δ)
   D = Diagonal(1 ./ sqrt.(diag(M0)))
@@ -82,8 +82,10 @@ function solveK2basic(A0, rhs1, rhs2, M0, δ, atol, rtol)
   opB = LinearOperator(Float64, m, m, true, true, (y, w, α, β) -> y .= lu_B' \ (M11 * (lu_B \ w)))
   opD = BlockDiagonalOperator(opM, opB)
 
-  x2N, stats2 = minres_qlp(Symmetric(Kbis, :U), rhsbis, M = opD, atol=atol, rtol=rtol, 
+  Kbisop = LinearOperator(Symmetric(Kbis, :U))
+  x2N, stats2 = minres_qlp(Kbisop, rhsbis, M = opD, atol=atol, rtol=rtol, 
                           history=false, verbose=0)
+  K.nprod = Kbisop.nprod
   println(norm(rhsbis - Kbis * x2N))
 
   x2 = zeros(n+m)
@@ -185,7 +187,7 @@ function solver!(
   # end
   # 
   if cnts.k > 5
-    dx, dy = solveK2basic(fd.A, pad.rhs[1:id.nvar], pad.rhs[id.nvar+1: end], 
+    dx, dy = solveK2basic(pad.K, fd.A, pad.rhs[1:id.nvar], pad.rhs[id.nvar+1: end], 
                           fd.Q - Diagonal(pad.D), pad.regu.δ, pad.atol, pad.rtol)
     if step == :aff
       dda.Δxy_aff[1: id.nvar] .= dx
