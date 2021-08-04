@@ -270,6 +270,10 @@ function initialize!(
   sc.optimal = itd.pdd < ϵ.pdd && res.rbNorm < ϵ.tol_rb && res.rcNorm < ϵ.tol_rc
   sc.small_μ = itd.μ < ϵ.μ
 
+  for i=1:10
+    update_analytic_center!(fd, id, pt, itd, dda, pad, res, cnts)
+  end
+
   return pad
 end
 
