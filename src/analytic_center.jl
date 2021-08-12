@@ -1,7 +1,7 @@
 function update_analytic_center!(fd::QM_FloatData{T}, id::QM_IntData, pt::Point{T}, itd::IterData{T}, dda::DescentDirectionAllocs{T},
                                  pad::PreallocatedData{T}, res::AbstractResiduals{T}, cnts::Counters) where {T <: Real}
   
-  for i=1:0
+  for i=1:10
     # only LP for now
     τ = itd.μ
     r, γ = T(0.999), T(0.05)
@@ -35,6 +35,12 @@ function update_analytic_center!(fd::QM_FloatData{T}, id::QM_IntData, pt::Point{
       ldl_factorize!(Symmetric(pad.K, :U), pad.K_fact)
       ldiv!(pad.K_fact, itd.Δxy)
     else
+      if typeof(pad) <: PreallocatedData_K2_5Krylov
+        pad.sqrtX1X2 .= one(T)
+        pad.sqrtX1X2[id.ilow] .*= itd.x_m_lvar
+        pad.sqrtX1X2[id.iupp] .*= itd.uvar_m_x
+        pad.D .*= pad.sqrtX1X2 .^2
+      end
       if cnts.k != 0
         update_regu!(pad.regu)
       end
