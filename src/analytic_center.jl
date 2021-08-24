@@ -1,5 +1,6 @@
 function update_analytic_center!(fd::QM_FloatData{T}, id::QM_IntData, pt::Point{T}, itd::IterData{T}, dda::DescentDirectionAllocs{T},
-                                 pad::PreallocatedData{T}, res::AbstractResiduals{T}, cnts::Counters) where {T <: Real}
+                                 pad::PreallocatedData{T}, res::AbstractResiduals{T}, cnts::Counters, 
+                                 iconf::InputConfig) where {T <: Real}
   
   for i=1:10
     # only LP for now
@@ -74,5 +75,29 @@ function update_analytic_center!(fd::QM_FloatData{T}, id::QM_IntData, pt::Point{
 
     println("αx = ", α_pri, "   μ = ", itd.μ, "   ||rc|| = ", res.rcNorm, "   ||rb|| = ", res.rbNorm)
   end
+
+  if iconf.analytic_center == 1
+    pt.s_l .= one(T) * 1 ./ itd.x_m_lvar
+    pt.s_u .= one(T) * 1 ./ itd.uvar_m_x
+  elseif iconf.analytic_center == 2
+    pt.s_l .= @views itd.Qx[id.ilow] - itd.ATy[id.ilow] .+ fd.c[id.ilow]
+    for i = 1: id.nlow
+      if pt.s_l[i] <= zero(T) 
+        pt.s_l[i] = T(sqrt(eps(T)))
+      end
+    end
+    pt.s_u .= @views .-itd.Qx[id.iupp] .+ itd.ATy[id.iupp] .- fd.c[id.iupp]
+    for i = 1: id.nupp
+      if pt.s_u[i] <= zero(T) 
+        pt.s_u[i] = T(sqrt(eps(T)))
+      end
+    end
+  end
+  update_IterData!(itd, pt, fd, id, true)
+  res.rb .= itd.Ax .- fd.b
+  res.rc .= itd.ATy .- itd.Qx .- fd.c
+  res.rc[id.ilow] .+= pt.s_l
+  res.rc[id.iupp] .-= pt.s_u
+  res.rcNorm, res.rbNorm = norm(res.rc, Inf), norm(res.rb, Inf)
 
 end

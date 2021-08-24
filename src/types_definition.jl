@@ -107,6 +107,7 @@ struct InputConfig{I <: Integer}
   mode::Symbol
   scaling::Bool
   presolve::Bool
+  analytic_center::I
   normalize_rtol::Bool # normalize the primal and dual tolerance to the initial starting primal and dual residuals
   kc::I # multiple centrality corrections, -1 = automatic computation
 
@@ -127,6 +128,7 @@ function InputConfig(;
   mode::Symbol = :mono,
   scaling::Bool = true,
   presolve::Bool = true,
+  analytic_center::I = 0,
   normalize_rtol::Bool = true,
   kc::I = 0,
   refinement::Symbol = :none,
@@ -151,6 +153,7 @@ function InputConfig(;
     mode,
     scaling,
     presolve,
+    analytic_center,
     normalize_rtol,
     kc,
     refinement,
