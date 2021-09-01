@@ -52,7 +52,7 @@ function update_analytic_center!(fd::QM_FloatData{T}, id::QM_IntData, pt::Point{
       if pad.rtol > pad.rtol_min
         pad.rtol /= 10
       end  
-      out = solver!(pad, dda, pt, itd, fd, id, res, cnts, T, :IPF)
+      out = solver!(itd.Δxy, pad, dda, pt, itd, fd, id, res, cnts, T, :IPF)
     end
     itd.Δs_l .= @views (σ * itd.μ .- pt.s_l .* itd.Δxy[id.ilow]) ./ itd.x_m_lvar .- pt.s_l
     itd.Δs_u .= @views (σ * itd.μ .+ pt.s_u .* itd.Δxy[id.iupp]) ./ itd.uvar_m_x .- pt.s_u
