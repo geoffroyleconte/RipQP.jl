@@ -56,6 +56,118 @@ end
   return (dot(s_l, x_m_lvar) + dot(s_u, uvar_m_x)) / (nb_low + nb_upp)
 end
 
+function compute_α_Ninf(x, s_l, s_u, lvar, uvar, Δxy, Δs_l, Δs_u, nvar, x_m_lvar, uvar_m_x, ilow, iupp, nlow, nupp, μ, γ)
+  Δx = Δxy[1:nvar]
+  Δμ1 = @views (dot(x_m_lvar, Δs_l) + dot(Δxy[ilow], s_l) + dot(uvar_m_x, Δs_u) - dot(Δx[iupp], s_u)) / (nlow + nupp)
+  Δμ2 = @views (dot(Δs_l, Δxy[ilow]) - dot(Δs_u, Δxy[iupp])) / (nlow + nupp)
+  c_l, c_u = 0, 0
+  n = length(x)
+  T = eltype(x)
+  αp, αd = compute_αs(x, s_l, s_u, lvar, uvar, Δxy, Δs_l, Δs_u, nvar)
+  α = min(αp, αd)
+  for i = 1:n
+    if c_u < nupp && iupp[c_u + 1] == i
+      c_u += 1
+    end
+    if c_l < nlow && ilow[c_l + 1] == i
+      c_l += 1
+    end
+    a, b, c = - γ * Δμ2, - γ * Δμ1, - γ * μ
+    if c_l != 0 && ilow[c_l] == i
+      a += Δx[i] * Δs_l[c_l]
+      b += (x[i] - lvar[i]) * Δs_l[c_l] + Δx[i] * s_l[c_l]
+      c += (x[i] - lvar[i]) * s_l[c_l]
+    end
+    if c_u != 0 && iupp[c_u] == i
+      a -= Δx[i] * Δs_u[c_u]
+      b += (uvar[i] - x[i]) * Δs_u[c_u] - Δx[i] * s_u[c_u]
+      c += (uvar[i] - x[i]) * s_u[c_u]
+    end
+    Δd = b^2 - 4 * a * c
+    if Δd < zero(T)
+      if a > zero(T) && c > 0
+        α_new = one(T)
+      elseif a < zero(T) #&& c > 0
+        println("error")
+      else
+        println("nopass1")
+      end
+    elseif Δd == zero(T)
+      αsol = -b / (2 * a)
+      if a < 0 && zero(T) ≤ αsol ≤ one(T)
+        α_new = αsol
+      elseif a > 0
+        α_new = one(T)
+      else
+        println("nopass2")
+      end
+    elseif Δd > zero(T)
+      if a > zero(T)
+        αsol1, αsol2 = (-b + sqrt(Δd)) / (2 * a), (-b - sqrt(Δd)) / (2 * a)
+        if zero(T) ≤ αsol1 ≤ one(T)
+          α_new = one(T)
+        elseif αsol1 > one(T)
+          if zero(T) ≤ αsol2 ≤ one(T)
+            α_new = αsol2
+          elseif αsol2 > one(T)
+            α_new = one(T)
+          else
+            println("error")
+          end
+        elseif αsol1 < zero(T)
+          α_new = one(T)
+        else
+          println("nopass3")
+        end
+      elseif a == zero(T)
+        αsol = - c / b
+        if b ≥ zero(T)
+          if αsol ≤ one(T)
+            α_new = one(T)
+          else
+            println("error")
+          end
+        else
+          if zero(T) ≤ αsol ≤ one(T)
+            α_new = αsol
+          elseif αsol ≥ one(T)
+            α_new = one(T)
+          else
+            println("error") 
+          end
+        end
+      else # a < 0
+        αsol1, αsol2 = (-b + sqrt(Δd)) / (2 * a), (-b - sqrt(Δd)) / (2 * a)
+        if zero(T) ≤ αsol2 ≤ one(T)
+          α_new = αsol2
+        elseif αsol2 > one(T) && αsol1 ≤ one(T)
+          α_new = one(T)
+        elseif αsol2 < zero(T) || αsol1 > one(T)
+          println("error")
+        else
+          println("nopass4")
+        end
+      end
+      @assert α_new > zero(T)
+      # if α_new^2 * a + α_new * b + c < -sqrt(eps(T))
+      #   println(a)
+      #   println(b)
+      #   println(c)
+      #   println(Δd)
+      #   println(αsol1, "   ", αsol2)
+      #   println(α_new)
+      #   println(α_new^2 * a + α_new * b + c)
+      # end
+      # @assert α_new^2 * a + α_new * b + c ≥ -sqrt(eps(T))
+      if α_new < α
+        α = α_new
+      end 
+    end
+  end
+  # α = max(zero(T), min(α_l, α_u))
+  return α, α
+end
+
 function update_pt!(x, y, s_l, s_u, α_pri, α_dual, Δxy, Δs_l, Δs_u, ncon, nvar)
   x .= @views x .+ α_pri .* Δxy[1:nvar]
   y .= @views y .+ α_dual .* Δxy[(nvar + 1):(ncon + nvar)]
@@ -180,8 +292,12 @@ function iter!(
     out == 1 && break
 
     if typeof(pt.x) <: Vector
-      α_pri, α_dual =
-        compute_αs(pt.x, pt.s_l, pt.s_u, fd.lvar, fd.uvar, itd.Δxy, itd.Δs_l, itd.Δs_u, id.nvar)
+        # α_pri, α_dual = compute_αs(pt.x, pt.s_l, pt.s_u, fd.lvar, fd.uvar, itd.Δxy, itd.Δs_l, itd.Δs_u, id.nvar)
+        α_pri, α_dual =
+        compute_α_Ninf(pt.x, pt.s_l, pt.s_u, fd.lvar, fd.uvar, itd.Δxy, itd.Δs_l, itd.Δs_u, id.nvar, 
+                       itd.x_m_lvar, itd.uvar_m_x, id.ilow, id.iupp, id.nlow, id.nupp, itd.μ, T(0.001))
+        # α_pri, α_dual = max(zero(T), min(α_pri, α_pri2)), max(zero(T), min(α_dual, α_dual2))
+        @assert all(pt.s_l .> zero(T)) && all(pt.s_u .> zero(T))
     else
       α_pri, α_dual = compute_αs_gpu(
         pt.x,
