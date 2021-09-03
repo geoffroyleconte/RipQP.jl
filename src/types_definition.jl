@@ -117,6 +117,7 @@ struct InputConfig{I <: Integer}
   # Functions to choose formulations
   sp::SolverParams
   solve_method::Symbol
+  stepsize::Symbol
 
   # output tools
   history::Bool
@@ -133,6 +134,7 @@ function InputConfig(;
   max_ref::I = 0,
   sp::SolverParams = K2LDLParams(),
   solve_method::Symbol = :PC,
+  stepsize::Symbol = :classic,
   history::Bool = false,
   w::SystemWrite = SystemWrite(),
 ) where {I <: Integer}
@@ -157,6 +159,7 @@ function InputConfig(;
     max_ref,
     sp,
     solve_method,
+    stepsize,
     history,
     w,
   )
@@ -445,6 +448,7 @@ mutable struct IterDataCPU{T <: Real, S} <: IterData{T, S}
   mean_pdd::T # mean of the 5 last pdd
   qp::Bool # true if qp false if lp
   minimize::Bool
+  stepsize::Symbol
 end
 
 mutable struct IterDataGPU{T <: Real, S} <: IterData{T, S}
@@ -532,6 +536,7 @@ function IterData(
   mean_pdd,
   qp,
   minimize,
+  stepsize,
 )
   if typeof(Δxy) <: Vector
     return IterDataCPU(
@@ -553,6 +558,7 @@ function IterData(
       mean_pdd,
       qp,
       minimize,
+      stepsize,
     )
   else
     return IterDataGPU(
@@ -598,6 +604,7 @@ convert(::Type{IterData{T, S}}, itd::IterData{T0, S0}) where {T <: Real, S, T0 <
     convert(T, itd.mean_pdd),
     itd.qp,
     itd.minimize,
+    itd.stepsize,
   )
 
 mutable struct ScaleData{T <: Real, S}

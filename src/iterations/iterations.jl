@@ -293,12 +293,15 @@ function iter!(
     out == 1 && break
 
     if typeof(pt.x) <: Vector
-        # α_pri, α_dual = compute_αs(pt.x, pt.s_l, pt.s_u, fd.lvar, fd.uvar, itd.Δxy, itd.Δs_l, itd.Δs_u, id.nvar)
+      if itd.stepsize == :Ninf
         α_pri, α_dual =
         compute_α_Ninf(pt.x, pt.s_l, pt.s_u, fd.lvar, fd.uvar, itd.Δxy, itd.Δs_l, itd.Δs_u, id.nvar, 
                        itd.x_m_lvar, itd.uvar_m_x, id.ilow, id.iupp, id.nlow, id.nupp, itd.μ, T(0.001))
-        # α_pri, α_dual = max(zero(T), min(α_pri, α_pri2)), max(zero(T), min(α_dual, α_dual2))
         @assert all(pt.s_l .> zero(T)) && all(pt.s_u .> zero(T))
+      else
+        α_pri, α_dual = compute_αs(pt.x, pt.s_l, pt.s_u, fd.lvar, fd.uvar, itd.Δxy, itd.Δs_l, itd.Δs_u, id.nvar)
+      end
+        
     else
       α_pri, α_dual = compute_αs_gpu(
         pt.x,
