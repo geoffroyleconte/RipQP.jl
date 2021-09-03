@@ -165,6 +165,7 @@ function compute_α_Ninf(x, s_l, s_u, lvar, uvar, Δxy, Δs_l, Δs_u, nvar, x_m_
     end
   end
   # α = max(zero(T), min(α_l, α_u))
+  println("αp = $αp , αd = $αd , α = $α")
   return α, α
 end
 
