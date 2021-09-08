@@ -113,6 +113,7 @@ function allocate_workspace(
   sptype = typeof(iconf.sp)
   if sptype <: K2LDLParams ||
      sptype <: K2_5LDLParams ||
+     sptype <: QRSep ||
      (sptype <: K2KrylovParams && iconf.sp.preconditioner == :Identity) || # for coverage
      (sptype <: K2_5KrylovParams && iconf.sp.preconditioner == :Identity)
     uplo = :U
