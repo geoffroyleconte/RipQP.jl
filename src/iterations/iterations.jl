@@ -148,7 +148,10 @@ function compute_α_Ninf(x, s_l, s_u, lvar, uvar, Δxy, Δs_l, Δs_u, nvar, x_m_
           println("nopass4")
         end
       end
-      @assert α_new > zero(T)
+      # @assert α_new > zero(T)
+      if α_new ≤ zero(T)
+        println("α négatif = $α_new")
+      end
       # if α_new^2 * a + α_new * b + c < -sqrt(eps(T))
       #   println(a)
       #   println(b)
