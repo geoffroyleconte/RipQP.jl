@@ -5,6 +5,10 @@ function KSolver(s::Symbol)
     return :MinresQlpSolver
   elseif s == :cg
     return :CgSolver
+  elseif s == :lsqr
+    return :LsqrSolver
+  elseif s == :lsmr
+    return LsmrSolver
   elseif s == :qmr
     return :QmrSolver
   elseif s == :usymqr
@@ -84,6 +88,28 @@ ksolve!(
   rtol::T = T(sqrt(eps(T))),
 ) where {T, S} = bicgstab!(KS, K, rhs, verbose = verbose, atol = atol, rtol = rtol)
 
+ksolve!(
+  KS::LsqrSolver{T, S},
+  K,
+  rhs::AbstractVector{T},
+  M;
+  verbose::Integer = 0,
+  atol::T = T(sqrt(eps(T))),
+  rtol::T = T(sqrt(eps(T))),
+  λ::T = T(eps(T)^(1/4))
+) where {T, S} = lsqr!(KS, K, rhs, verbose = verbose, atol = atol, rtol = rtol, λ = λ)
+
+ksolve!(
+  KS::LsmrSolver{T, S},
+  K,
+  rhs::AbstractVector{T},
+  M;
+  verbose::Integer = 0,
+  atol::T = T(sqrt(eps(T))),
+  rtol::T = T(sqrt(eps(T))),
+  λ::T = T(eps(T)^(1/4))
+) where {T, S} = lsmr!(KS, K, rhs, verbose = verbose, atol = atol, rtol = rtol, λ = λ)
+
 function kscale!(rhs::AbstractVector{T}) where {T <: Real}
   rhsNorm = norm(rhs)
   if rhsNorm != zero(T)
@@ -107,5 +133,22 @@ function update_kresiduals_history!(
   if typeof(res) <: ResidualsHistory
     mul!(res.KΔxy, K, sol) # krylov residuals
     res.Kres = res.KΔxy .- rhs
+  end
+end
+
+function update_kresiduals_history_LS!(
+  res::AbstractResiduals{T},
+  K,
+  sol::AbstractVector{T},
+  rhs::AbstractVector{T},
+  vtmp::AbstractVector{T},
+  δ::T,
+) where {T <: Real}
+  if typeof(res) <: ResidualsHistory
+    mul!(vtmp, K', sol)
+    mul!(res.KΔxy, K, vtmp) # krylov residuals
+    res.KΔxy .+= δ .* sol
+    mul!(res.Kres, K, rhs) 
+    res.Kres .= res.KΔxy .- res.Kres
   end
 end

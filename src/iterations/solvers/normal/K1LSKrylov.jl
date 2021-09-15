@@ -2,24 +2,25 @@
 # where D = s_l (x - lvar)⁻¹ + s_u (uvar - x)⁻¹ + ρI,
 # and the right hand side of K2 is rhs = [ξ₁]
 #                                        [ξ₂]
-export K1KrylovParams
+# With the least-squares formulation:
+# (A D⁻¹ Aᵀ + δI) Δ̃y = A D⁻¹ (ξ₁ - Aᵀ ξ₂ / δ),
+# where Δ̃y = Δy - ξ₂ / δ
+export K1LSKrylovParams
 
 """
 Type to use the K1 formulation with a Krylov method, using the package 
 [`Krylov.jl`](https://github.com/JuliaSmoothOptimizers/Krylov.jl). 
 The outer constructor 
 
-    K1KrylovParams(; uplo = :L, kmethod = :cg, preconditioner = :Identity, 
+    K1LSKrylovParams(; uplo = :L, kmethod = :lsqr, preconditioner = :Identity, 
                    ratol = 1.0e-10, rrtol = 1.0e-10)
 
 creates a [`RipQP.SolverParams`](@ref) that should be used to create a [`RipQP.InputConfig`](@ref).
 The available methods are:
-- `:cg`
-- `:minres`
-- `:minres_qlp`
+- `:lsqr`
 
 """
-struct K1KrylovParams <: SolverParams
+struct K1LSKrylovParams <: SolverParams
   uplo::Symbol
   kmethod::Symbol
   preconditioner::Symbol
@@ -31,7 +32,7 @@ struct K1KrylovParams <: SolverParams
   δ_min::Float64
 end
 
-function K1KrylovParams(;
+function K1LSKrylovParams(;
   uplo::Symbol = :L,
   kmethod::Symbol = :cg,
   preconditioner::Symbol = :Identity,
@@ -42,7 +43,7 @@ function K1KrylovParams(;
   ρ_min::T = 1e3 * sqrt(eps()),
   δ_min::T = 1e4 * sqrt(eps()),
 ) where {T <: Real}
-  return K1KrylovParams(
+  return K1LSKrylovParams(
     uplo,
     kmethod,
     preconditioner,
@@ -55,10 +56,11 @@ function K1KrylovParams(;
   )
 end
 
-mutable struct PreallocatedDataK1Krylov{T <: Real, S, L <: LinearOperator, Ksol <: KrylovSolver} <:
+mutable struct PreallocatedDataK1LSKrylov{T <: Real, S, L <: LinearOperator, Ksol <: KrylovSolver} <:
                PreallocatedDataNormalKrylov{T, S}
   D::S
   rhs::S
+  vtmp::S
   regu::Regularization{T}
   δv::Vector{T}
   K::L # augmented matrix (LinearOperator)         
@@ -69,7 +71,22 @@ mutable struct PreallocatedDataK1Krylov{T <: Real, S, L <: LinearOperator, Ksol 
   rtol_min::T
 end
 
-function opK1prod!(
+function opK1LSprod!(
+  res::AbstractVector{T},
+  D::AbstractVector{T},
+  A::AbstractMatrix{T},
+  δv::AbstractVector{T},
+  v::AbstractVector{T},
+  α::T,
+  β::T,
+  uplo::Symbol,
+) where {T}
+  if uplo == :L
+    mul!(res, A, v ./ sqrt.(D), α, β)
+  end
+end
+
+function opK1LStprod!(
   res::AbstractVector{T},
   D::AbstractVector{T},
   A::AbstractMatrix{T},
@@ -80,19 +97,18 @@ function opK1prod!(
   β::T,
   uplo::Symbol,
 ) where {T}
-  if uplo == :U
-    mul!(vtmp, A, v)
-    mul!(res, A', vtmp ./ D, α, β)
-    res .+= (α * δv[1]) .* v
-  else
+  if uplo == :L
     mul!(vtmp, A', v)
-    mul!(res, A, vtmp ./ D, α, β)
-    res .+= (α * δv[1]) .* v
+    if β == zero(T)
+      res .= α .* vtmp ./ sqrt.(D)
+    else
+      res .= α .* vtmp ./ sqrt.(D) .+ β .* res
+    end
   end
 end
 
 function PreallocatedData(
-  sp::K1KrylovParams,
+  sp::K1LSKrylovParams,
   fd::QM_FloatData{T},
   id::QM_IntData,
   itd::IterData{T},
@@ -117,22 +133,26 @@ function PreallocatedData(
   end
 
   δv = [regu.δ] # put it in a Vector so that we can modify it without modifying opK2prod!
+
+  vtmp = similar(fd.c)
   K = LinearOperator(
     T,
     id.ncon,
-    id.ncon,
-    true,
-    true,
-    (res, v, α, β) -> opK1prod!(res, D, fd.A, δv, v, similar(fd.c), α, β, fd.uplo),
+    id.nvar,
+    false,
+    false,
+    (res, v, α, β) -> opK1LSprod!(res, D, fd.A, δv, v, α, β, fd.uplo),
+    (res, v, α, β) -> opK1LStprod!(res, D, fd.A, δv, v, vtmp, α, β, fd.uplo),
   )
 
-  rhs = similar(fd.c, id.ncon)
+  rhs = similar(fd.c, id.nvar)
   kstring = string(sp.kmethod)
-  KS = eval(KSolver(sp.kmethod))(K, rhs)
+  KS = eval(KSolver(sp.kmethod))(K', rhs)
 
-  return PreallocatedDataK1Krylov(
+  return PreallocatedDataK1LSKrylov(
     D,
     rhs,
+    vtmp,
     regu,
     δv,
     K, #K
@@ -146,7 +166,7 @@ end
 
 function solver!(
   dd::AbstractVector{T},
-  pad::PreallocatedDataK1Krylov{T},
+  pad::PreallocatedDataK1LSKrylov{T},
   dda::DescentDirectionAllocs{T},
   pt::Point{T},
   itd::IterData{T},
@@ -157,18 +177,14 @@ function solver!(
   T0::DataType,
   step::Symbol,
 ) where {T <: Real}
-  pad.rhs .= @views dd[(id.nvar + 1):end]
-  if fd.uplo == :U
-    @views mul!(pad.rhs, fd.A', dd[1:(id.nvar)] ./ pad.D, one(T), one(T))
-  else
-    @views mul!(pad.rhs, fd.A, dd[1:(id.nvar)] ./ pad.D, one(T), one(T))
-  end
-  rhsNorm = kscale!(pad.rhs)
+  pad.rhs .= @views dd[1:id.nvar] ./ sqrt.(pad.D)
+  @views mul!(pad.rhs, pad.K', dd[(id.nvar + 1):end], -one(T) /pad.regu.δ, one(T))
   pad.K.nprod = 0
-  ksolve!(pad.KS, pad.K, pad.rhs, I(id.ncon), verbose = 0, atol = pad.atol, rtol = pad.rtol)
-  update_kresiduals_history!(res, pad.K, pad.KS.x, pad.rhs)
+  rhsNorm = kscale!(pad.rhs)
+  ksolve!(pad.KS, pad.K', pad.rhs, I(id.nvar), verbose = 0, atol = pad.atol, rtol = pad.rtol, λ = sqrt(pad.regu.δ))
+  update_kresiduals_history_LS!(res, pad.K, pad.KS.x, pad.rhs, pad.vtmp, pad.regu.δ)
   kunscale!(pad.KS.x, rhsNorm)
-
+  pad.KS.x .+= dd[(id.nvar + 1):end] ./ pad.regu.δ
   if fd.uplo == :U
     @views mul!(dd[1:(id.nvar)], fd.A, pad.KS.x, one(T), -one(T))
   else
@@ -180,7 +196,7 @@ function solver!(
 end
 
 function update_pad!(
-  pad::PreallocatedDataK1Krylov{T},
+  pad::PreallocatedDataK1LSKrylov{T},
   dda::DescentDirectionAllocs{T},
   pt::Point{T},
   itd::IterData{T},
