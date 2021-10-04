@@ -117,6 +117,7 @@ struct InputConfig{I <: Integer}
   # Functions to choose formulations
   sp::SolverParams
   solve_method::Symbol
+  LIPF::Bool
 
   # output tools
   history::Bool
@@ -133,6 +134,7 @@ function InputConfig(;
   max_ref::I = 0,
   sp::SolverParams = K2LDLParams(),
   solve_method::Symbol = :PC,
+  LIPF::Bool = false,
   history::Bool = false,
   w::SystemWrite = SystemWrite(),
 ) where {I <: Integer}
@@ -157,6 +159,7 @@ function InputConfig(;
     max_ref,
     sp,
     solve_method,
+    LIPF,
     history,
     w,
   )
@@ -442,6 +445,8 @@ mutable struct IterDataCPU{T <: Real, S} <: IterData{T, S}
   pri_obj::T # 1/2 xᵀQx + cᵀx + c0                                             
   dual_obj::T # -1/2 xᵀQx + yᵀb + s_lᵀlvar - s_uᵀuvar + c0
   μ::T # duality measure (s_lᵀ(x-lvar) + s_uᵀ(uvar-x)) / (nlow+nupp)
+  σ::T
+  LIPF::Bool
   pdd::T # primal dual difference (relative) pri_obj - dual_obj / pri_obj
   l_pdd::Vector{T} # list of the 5 last pdd
   mean_pdd::T # mean of the 5 last pdd
@@ -463,6 +468,8 @@ mutable struct IterDataGPU{T <: Real, S} <: IterData{T, S}
   pri_obj::T # 1/2 xᵀQx + cᵀx + c0                                             
   dual_obj::T # -1/2 xᵀQx + yᵀb + s_lᵀlvar - s_uᵀuvar + c0
   μ::T # duality measure (s_lᵀ(x-lvar) + s_uᵀ(uvar-x)) / (nlow+nupp)
+  σ::T
+  LIPF::Bool
   pdd::T # primal dual difference (relative) pri_obj - dual_obj / pri_obj
   l_pdd::Vector{T} # list of the 5 last pdd
   mean_pdd::T # mean of the 5 last pdd
@@ -485,6 +492,8 @@ mutable struct IterDataGPU{T <: Real, S} <: IterData{T, S}
     pri_obj::T,
     dual_obj::T,
     μ::T,
+    σ::T,
+    LIPF::Bool,
     pdd::T,
     l_pdd::Vector{T},
     mean_pdd::T,
@@ -504,6 +513,8 @@ mutable struct IterDataGPU{T <: Real, S} <: IterData{T, S}
     pri_obj,
     dual_obj,
     μ,
+    σ,
+    LIPF,
     pdd,
     l_pdd,
     mean_pdd,
@@ -529,6 +540,8 @@ function IterData(
   pri_obj,
   dual_obj,
   μ,
+  σ,
+  LIPF,
   pdd,
   l_pdd,
   mean_pdd,
@@ -550,6 +563,8 @@ function IterData(
       pri_obj,
       dual_obj,
       μ,
+      σ,
+      LIPF,
       pdd,
       l_pdd,
       mean_pdd,
@@ -571,6 +586,8 @@ function IterData(
       pri_obj,
       dual_obj,
       μ,
+      σ,
+      LIPF,
       pdd,
       l_pdd,
       mean_pdd,
@@ -595,6 +612,8 @@ convert(::Type{IterData{T, S}}, itd::IterData{T0, S0}) where {T <: Real, S, T0 <
     convert(T, itd.pri_obj),
     convert(T, itd.dual_obj),
     convert(T, itd.μ),
+    convert(T, itd.σ),
+    itd.LIPF,
     convert(T, itd.pdd),
     convert(Array{T, 1}, itd.l_pdd),
     convert(T, itd.mean_pdd),

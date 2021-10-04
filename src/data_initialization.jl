@@ -153,6 +153,8 @@ function allocate_workspace(
     zero(T), #pri_obj
     zero(T), #dual_obj
     zero(T), #μ
+    zero(T),
+    iconf.LIPF,
     zero(T),#pdd
     zeros(T, 6), #l_pdd
     one(T), #mean_pdd

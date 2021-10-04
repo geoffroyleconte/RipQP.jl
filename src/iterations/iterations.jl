@@ -46,6 +46,25 @@ function compute_α_primal(v, dir_v, lvar, uvar)
   return min(α_l, α_u)
 end
 
+function is_in_ninf(α, γ, x_m_lvar::AbstractVector{T}, uvar_m_x, s_l, s_u, 
+                    Δxy, Δs_l, Δs_u, μ, compl, ilow, iupp, nlow, nupp, nvar) where T
+  compl .= zero(T)
+  compl[ilow] .+= @views (x_m_lvar .+ α .* Δxy[ilow]) .* (s_l .+ α .* Δs_l)
+  compl[iupp] .+= @views (uvar_m_x .- α .* Δxy[iupp]) .* (s_u .+ α .* Δs_u)
+  μkp1 = sum(compl) / (nlow + nupp)
+  return all(compl .- γ * μkp1 .≥ zero(T))
+end
+
+function compute_α_LIPF(γ, σ, μ, compl, x, lvar, uvar, Δxy::AbstractVector{T}, x_m_lvar, uvar_m_x, s_l, s_u, Δs_l, Δs_u, 
+                        nvar, ilow, iupp, nlow, nupp) where T
+  α_pri, α_dual = compute_αs(x, s_l, s_u, lvar, uvar, Δxy, Δs_l, Δs_u, nvar)
+  α = min(α_pri, α_dual)
+  while !is_in_ninf(α, γ, x_m_lvar, uvar_m_x, s_l, s_u, Δxy, Δs_l, Δs_u, μ, compl, ilow, iupp, nlow, nupp, nvar)
+    α /= 1.2
+  end
+  return α
+end
+
 @inline function compute_αs(x, s_l, s_u, lvar, uvar, Δxy, Δs_l, Δs_u, nvar)
   α_pri = @views compute_α_primal(x, Δxy[1:nvar], lvar, uvar)
   α_dual_l = compute_α_dual(s_l, Δs_l)
@@ -181,8 +200,15 @@ function iter!(
     out == 1 && break
 
     if typeof(pt.x) <: Vector
-      α_pri, α_dual =
-        compute_αs(pt.x, pt.s_l, pt.s_u, fd.lvar, fd.uvar, itd.Δxy, itd.Δs_l, itd.Δs_u, id.nvar)
+      if itd.LIPF
+        α_pri = compute_α_LIPF(T(1.0e-3), itd.σ, itd.μ, dda.compl, pt.x, fd.lvar, fd.uvar, itd.Δxy, 
+                              itd.x_m_lvar, itd.uvar_m_x, pt.s_l, pt.s_u, itd.Δs_l, itd.Δs_u, 
+                              id.nvar, id.ilow, id.iupp, id.nlow, id.nupp)
+        α_dual = α_pri
+      else
+        α_pri, α_dual =
+          compute_αs(pt.x, pt.s_l, pt.s_u, fd.lvar, fd.uvar, itd.Δxy, itd.Δs_l, itd.Δs_u, id.nvar)
+      end
     else
       α_pri, α_dual = compute_αs_gpu(
         pt.x,
