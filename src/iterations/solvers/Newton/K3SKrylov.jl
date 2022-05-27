@@ -162,8 +162,8 @@ function PreallocatedData(
     regu =
       Regularization(T(sp.ρ0), T(sp.δ0), T(sqrt(eps(T)) * 1e0), T(sqrt(eps(T)) * 1e0), :classic)
   end
-  ρv = [regu.ρ]
-  δv = [regu.δ] # put it in a Vector so that we can modify it without modifying opK2prod!
+  ρv = [regu.ρ_min]
+  δv = [regu.δ_min] # put it in a Vector so that we can modify it without modifying opK2prod!
   x_m_lvar_div_s_l = itd.x_m_lvar ./ pt.s_l
   uvar_m_x_div_s_u = itd.uvar_m_x ./ pt.s_u
   K = LinearOperator(
@@ -276,7 +276,7 @@ function update_pad!(
   T0::DataType,
 ) where {T <: Real}
   if cnts.k != 0
-    update_regu!(pad.regu)
+    # update_regu!(pad.regu)
   end
 
   if pad.atol > pad.atol_min
@@ -286,8 +286,8 @@ function update_pad!(
     pad.rtol /= 10
   end
 
-  pad.ρv[1] = pad.regu.ρ
-  pad.δv[1] = pad.regu.δ
+  # pad.ρv[1] = pad.regu.ρ
+  # pad.δv[1] = pad.regu.δ
   pad.x_m_lvar_div_s_l .= itd.x_m_lvar ./ pt.s_l
   pad.uvar_m_x_div_s_u .= itd.uvar_m_x ./ pt.s_u
 

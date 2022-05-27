@@ -34,7 +34,7 @@ types_linop(op::LinearOperator{T, I, F, Ftu, Faw, S}) where {T, I, F, Ftu, Faw, 
 
 lowtype(pdat::LDLData{T, S, Tlow}) where {T, S, Tlow} = Tlow
 
-function ld_div!(y, b, n, Lp, Li, Lx, D, P)
+function l_div!(y, b, n, Lp, Li, Lx, D, P)
   y .= b
   z = @views y[P]
   LDLFactorizations.ldl_lsolve!(n, z, Lp, Li, Lx)
@@ -94,7 +94,7 @@ function PreconditionerData(
         false,
         false,
         (res, v) ->
-          ld_div!(res, v, K_fact.n, K_fact.Lp, K_fact.Li, K_fact.Lx, K_fact.d, K_fact.P),
+          l_div!(res, v, K_fact.n, K_fact.Lp, K_fact.Li, K_fact.Lx, K_fact.d, K_fact.P),
       )
       N = LinearOperator(
         Tlow,
