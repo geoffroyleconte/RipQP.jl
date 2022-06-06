@@ -175,7 +175,7 @@ function update_dd!(
 
   μ_aff =
     compute_μ(dda.x_m_l_αΔ_aff, dda.u_m_x_αΔ_aff, dda.s_l_αΔ_aff, dda.s_u_αΔ_aff, id.nlow, id.nupp)
-  σ = (μ_aff / itd.μ)^3
+  itd.σ = (μ_aff / itd.μ)^3
 
   # corrector-centering step
   if typeof(pad) <: PreallocatedDataAugmented || typeof(pad) <: PreallocatedDataNormal
@@ -258,7 +258,7 @@ function update_dd!(
   min_compl_l = (id.nlow > 0) ? minimum(dda.compl_l) / (sum(dda.compl_l) / id.nlow) : one(T)
   min_compl_u = (id.nupp > 0) ? minimum(dda.compl_u) / (sum(dda.compl_u) / id.nupp) : one(T)
   ξ = min(min_compl_l, min_compl_u)
-  σ = dda.γ * min((one(T) - dda.r) * (one(T) - ξ) / ξ, T(2))^3
+  itd.σ = dda.γ * min((one(T) - dda.r) * (one(T) - ξ) / ξ, T(2))^3
 
   itd.Δxy[1:(id.nvar)] .= .-res.rc
   itd.Δxy[(id.nvar + 1):(id.nvar + id.ncon)] .= .-res.rb

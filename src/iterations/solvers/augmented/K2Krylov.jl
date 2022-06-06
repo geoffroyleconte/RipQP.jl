@@ -11,7 +11,7 @@ The outer constructor
                    atol_min = 1.0e-10, rtol_min = 1.0e-10,
                    ρ0 = sqrt(eps()) * 1e5, δ0 = sqrt(eps()) * 1e5, 
                    ρ_min = 1e2 * sqrt(eps()), δ_min = 1e2 * sqrt(eps()),
-                   itmax = 0, memory = 20)
+                   itmax = 0, memory = 20, k3_resid = false, cb_only = false)
 
 creates a [`RipQP.SolverParams`](@ref).
 """
@@ -33,6 +33,8 @@ mutable struct K2KrylovParams{T, PT, FT <: DataType} <: AugmentedKrylovParams{T,
   itmax::Int
   mem::Int
   Tir::FT
+  k3_resid::Bool
+  cb_only::Bool # deactivate stop crit for Krylov method, leaving only the callback
 end
 
 function K2KrylovParams{T}(;
@@ -53,6 +55,8 @@ function K2KrylovParams{T}(;
   itmax::Int = 0,
   mem::Int = 20,
   Tir::DataType = T,
+  k3_resid = false,
+  cb_only = false,
 ) where {T <: Real}
   if equilibrate && !form_mat
     error("use form_mat = true to use equilibration")
@@ -86,6 +90,8 @@ function K2KrylovParams{T}(;
     itmax,
     mem,
     Tir,
+    k3_resid,
+    cb_only,
   )
 end
 
@@ -112,6 +118,7 @@ mutable struct PreallocatedDataK2Krylov{
   MT <: Union{MatrixTools{T}, Int},
   Pr <: PreconditionerData,
   Ksol <: KrylovSolver,
+  R <: Union{AugmentedToK3Residuals{T, S}, Int},
 } <: PreallocatedDataAugmentedKrylov{T, S}
   pdat::Pr
   D::S                                  # temporary top-left diagonal
@@ -129,6 +136,8 @@ mutable struct PreallocatedDataK2Krylov{
   atol_min::T
   rtol_min::T
   itmax::Int
+  rd::R
+  cb_only::Bool
 end
 
 function opK2prod!(
@@ -200,6 +209,7 @@ function PreallocatedData(
   rhs = similar(fd.c, id.nvar + id.ncon)
   KS = @timeit_debug to "krylov solver setup" init_Ksolver(K, rhs, sp)
   pdat = @timeit_debug to "preconditioner setup" PreconditionerData(sp, id, fd, regu, D, K)
+  rd = sp.k3_resid ? AugmentedToK3Residuals(K, rhs, itd, pt, id, sp) : 0
 
   return PreallocatedDataK2Krylov(
     pdat,
@@ -218,6 +228,8 @@ function PreallocatedData(
     T(sp.atol_min),
     T(sp.rtol_min),
     sp.itmax,
+    rd,
+    sp.cb_only,
   )
 end
 
@@ -255,10 +267,12 @@ function solver!(
     pad.K,
     pad.rhs,
     pad.pdat.P,
+    pad.rd == 0 ? solver -> false : solver -> pad.rd(solver, itd.σ, itd.μ, res.rbNorm, res.rcNorm), 
     verbose = 0,
     atol = pad.atol,
     rtol = pad.rtol,
     itmax = pad.itmax,
+    cb_only = pad.cb_only,
   )
   pad.kiter += niterations(pad.KS)
   update_kresiduals_history!(res, pad.K, pad.KS.x, pad.rhs)
@@ -290,6 +304,9 @@ function update_pad!(
 ) where {T <: Real}
   if cnts.k != 0
     update_regu!(pad.regu)
+  else
+    pad.rd != 0 && set_μ0!(pad.rd, itd.μ)
+    println(itd.μ)
   end
 
   update_krylov_tol!(pad)

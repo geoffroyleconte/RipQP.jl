@@ -165,7 +165,7 @@ function allocate_workspace(
   S0 = typeof(fd_T0.c)
   S = change_vector_eltype(S0, T)
 
-  res = init_residuals(S(undef, id.ncon), S(undef, id.nvar), zero(T), zero(T), iconf, id)
+  res = init_residuals(S(undef, id.ncon), S(undef, id.nvar), one(T), one(T), iconf, id)
 
   itd = IterData(
     S(undef, id.nvar + id.ncon), # Δxy
@@ -181,6 +181,7 @@ function allocate_workspace(
     zero(T), #pri_obj
     zero(T), #dual_obj
     zero(T), #μ
+    zero(T),
     zero(T),#pdd
     zeros(T, 6), #l_pdd
     one(T), #mean_pdd
@@ -261,7 +262,8 @@ function initialize!(
   #       [  A     0  ] [y] = [b]
   itd.Δxy[1:(id.nvar)] .= 0
   itd.Δxy[(id.nvar + 1):end] = fd.b
-  if typeof(iconf.sp) <: NewtonParams
+  Tsp = typeof(iconf.sp)
+  if Tsp <: NewtonParams || (Tsp <: K2KrylovParams && iconf.sp.k3_resid)
     itd.Δs_l .= zero(T)
     itd.Δs_u .= zero(T)
     pt.s_l .= one(T)
