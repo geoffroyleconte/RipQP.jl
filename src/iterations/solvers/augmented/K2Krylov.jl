@@ -267,11 +267,11 @@ function solver!(
     pad.K,
     pad.rhs,
     pad.pdat.P,
-    pad.rd == 0 ? solver -> false : solver -> pad.rd(solver, itd.σ, itd.μ, res.rbNorm, res.rcNorm), 
     verbose = 0,
     atol = pad.atol,
     rtol = pad.rtol,
     itmax = pad.itmax,
+    callback = pad.rd == 0 ? solver -> false : solver -> pad.rd(solver, itd.σ, itd.μ, res.rbNorm, res.rcNorm),
     cb_only = pad.cb_only,
   )
   pad.kiter += niterations(pad.KS)
@@ -305,8 +305,7 @@ function update_pad!(
   if cnts.k != 0
     update_regu!(pad.regu)
   else
-    pad.rd != 0 && set_μ0!(pad.rd, itd.μ)
-    println(itd.μ)
+    pad.rd != 0 && set_rd_init_res!(pad.rd, itd.μ, res.rbNorm, res.rcNorm)
   end
 
   update_krylov_tol!(pad)

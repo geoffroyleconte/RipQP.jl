@@ -23,12 +23,12 @@ ksolve!(
   KS::MinresSolver{T},
   K,
   rhs::AbstractVector{T},
-  M,
-  callback::Function;
+  M;
   verbose::Integer = 0,
   atol::T = T(sqrt(eps(T))),
   rtol::T = T(sqrt(eps(T))),
   itmax::Int = 0,
+  callback::Function = solver -> false,
   cb_only::Bool = false,
 ) where {T} = minres!(
   KS,
@@ -189,8 +189,21 @@ ksolve!(
   atol::T = T(sqrt(eps(T))),
   rtol::T = T(sqrt(eps(T))),
   itmax::Int = 0,
+  callback::Function = solver -> false,
+  cb_only::Bool = false,
 ) where {T} =
-  dqgmres!(KS, K, rhs, M = M, N = I, verbose = verbose, atol = atol, rtol = rtol, itmax = itmax)
+  dqgmres!(
+    KS,
+    K,
+    rhs,
+    M = M,
+    N = M,
+    verbose = verbose,
+    atol = cb_only ? zero(T) : atol,
+    rtol = cb_only ? zero(T) : rtol,
+    itmax = itmax,
+    callback = callback,
+  )
 
 ksolve!(
   KS::DqgmresSolver{T},
@@ -201,8 +214,21 @@ ksolve!(
   atol::T = T(sqrt(eps(T))),
   rtol::T = T(sqrt(eps(T))),
   itmax::Int = 0,
+  callback::Function = solver -> false,
+  cb_only::Bool = false,
 ) where {T} =
-  dqgmres!(KS, K, rhs, M = P.M, N = P.N, verbose = verbose, atol = atol, rtol = rtol, itmax = itmax)
+  dqgmres!(
+    KS,
+    K,
+    rhs,
+    M = P.M,
+    N = P.N,
+    verbose = verbose,
+    atol = cb_only ? zero(T) : atol,
+    rtol = cb_only ? zero(T) : rtol,
+    itmax = itmax,
+    callback = callback,
+  )
 
 ksolve!(
   KS::DqgmresSolver{T},

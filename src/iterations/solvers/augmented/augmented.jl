@@ -39,6 +39,8 @@ mutable struct AugmentedToK3Residuals{T, S <: AbstractVector{T}, M}
   x_m_lvar::S
   uvar_m_x::S
   μ0::T
+  rbNorm0::T
+  rcNorm0::T
   nvar::Int
   ncon::Int
   ilow::Vector{Int}
@@ -74,6 +76,8 @@ AugmentedToK3Residuals(
   itd.x_m_lvar,
   itd.uvar_m_x,
   zero(T),
+  zero(T),
+  zero(T),
   id.nvar,
   id.ncon,
   id.ilow,
@@ -82,8 +86,10 @@ AugmentedToK3Residuals(
   id.nupp,
 )
 
-function set_μ0!(rd::AugmentedToK3Residuals{T}, μ::T) where {T}
+function set_rd_init_res!(rd::AugmentedToK3Residuals{T}, μ::T, rbNorm0::T, rcNorm0::T) where {T}
   rd.μ0 = μ
+  rd.rbNorm0 = rbNorm0
+  rd.rcNorm0 = rcNorm0
 end
 
 function (rd::AugmentedToK3Residuals)(solver::KrylovSolver{T}, σ::T, μ::T, 
@@ -105,8 +111,8 @@ function (rd::AugmentedToK3Residuals)(solver::KrylovSolver{T}, σ::T, μ::T,
   # println("rNorm true = ", norm(rd.ϵK2, 2), " xNorm true = ", norm(solver.x))
   # println("ϵd = ", norm(rd.ϵ_d, Inf), " ϵ_p = ", norm(rd.ϵ_p, Inf), " ϵ_l = ", norm(rd.ϵ_l, Inf),
   #   " ϵ_u = ", norm(rd.ϵ_u, Inf))
-  return (norm(rd.ϵ_d, Inf) ≤ min(T(1.0e-4), rd.rtol * rcNorm * μ / rd.μ0) &&
-          norm(rd.ϵ_p, Inf) ≤ min(T(1.0e-4), rd.rtol * rbNorm * μ / rd.μ0) &&
+  return (norm(rd.ϵ_d, Inf) ≤ min(T(1.0e-4), rd.rtol * rd.rcNorm0 * μ / rd.μ0) &&
+          norm(rd.ϵ_p, Inf) ≤ min(T(1.0e-4), rd.rtol * rd.rbNorm0 * μ / rd.μ0) &&
           norm(rd.ϵ_l, Inf) ≤ min(T(1.0e-4), rd.rtol * norm(rd.ξ_l, Inf) * μ / rd.μ0) &&
           norm(rd.ϵ_u, Inf) ≤ min(T(1.0e-4), rd.rtol * norm(rd.ξ_u, Inf) * μ / rd.μ0))
 end
