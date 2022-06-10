@@ -55,8 +55,20 @@ ksolve!(
   atol::T = T(sqrt(eps(T))),
   rtol::T = T(sqrt(eps(T))),
   itmax::Int = 0,
+  callback::Function = solver -> false,
+  cb_only::Bool = false,
 ) where {T} =
-  minres_qlp!(KS, K, rhs, M = M, verbose = verbose, atol = atol, rtol = rtol, itmax = itmax)
+  minres_qlp!(
+    KS,
+    K,
+    rhs,
+    M = M,
+    verbose = verbose,
+    atol = cb_only ? zero(T) : atol,
+    rtol = cb_only ? zero(T) : rtol,
+    itmax = itmax,
+    callback = callback,
+  )
 
 ksolve!(
   KS::SymmlqSolver{T},
@@ -67,7 +79,19 @@ ksolve!(
   atol::T = T(sqrt(eps(T))),
   rtol::T = T(sqrt(eps(T))),
   itmax::Int = 0,
-) where {T} = symmlq!(KS, K, rhs, M = M, verbose = verbose, atol = atol, rtol = rtol, itmax = itmax)
+  callback::Function = solver -> false,
+  cb_only::Bool = false,
+) where {T} = symmlq!(
+  KS,
+  K,
+  rhs,
+  M = M,
+  verbose = verbose,
+  atol = cb_only ? zero(T) : atol,
+  rtol = cb_only ? zero(T) : rtol,
+  itmax = itmax,
+  callback = callback,
+)
 
 ksolve!(
   KS::CgSolver{T},
@@ -167,7 +191,18 @@ ksolve!(
   atol::T = T(sqrt(eps(T))),
   rtol::T = T(sqrt(eps(T))),
   itmax::Int = 0,
-) where {T} = diom!(KS, K, rhs, verbose = verbose, atol = atol, rtol = rtol, itmax = itmax)
+  callback::Function = solver -> false,
+  cb_only::Bool = false,
+) where {T} = diom!(
+  KS,
+  K,
+  rhs,
+  verbose = verbose,
+  atol = cb_only ? zero(T) : atol,
+  rtol = cb_only ? zero(T) : rtol,
+  itmax = itmax,
+  callback = callback,
+)
 
 ksolve!(
   KS::FomSolver{T},
