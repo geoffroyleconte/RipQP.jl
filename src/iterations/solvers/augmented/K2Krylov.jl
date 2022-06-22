@@ -209,7 +209,7 @@ function PreallocatedData(
   rhs = similar(fd.c, id.nvar + id.ncon)
   KS = @timeit_debug to "krylov solver setup" init_Ksolver(K, rhs, sp)
   pdat = @timeit_debug to "preconditioner setup" PreconditionerData(sp, id, fd, regu, D, K)
-  rd = sp.k3_resid ? AugmentedToK3Residuals(K, rhs, itd, pt, id, sp) : 0
+  rd = sp.k3_resid ? ToK3Residuals(K, rhs, itd, pt, id, sp) : 0
 
   return PreallocatedDataK2Krylov(
     pdat,

@@ -102,7 +102,19 @@ ksolve!(
   atol::T = T(sqrt(eps(T))),
   rtol::T = T(sqrt(eps(T))),
   itmax::Int = 0,
-) where {T} = cg!(KS, K, rhs, M = M, verbose = verbose, atol = atol, rtol = rtol, itmax = itmax)
+  callback::Function = solver -> false,
+  cb_only::Bool = false,
+) where {T} = cg!(
+  KS,
+  K,
+  rhs,
+  M = M,
+  verbose = verbose,
+  atol = cb_only ? zero(T) : atol,
+  rtol = cb_only ? zero(T) : rtol,
+  itmax = itmax,
+  callback = callback,
+)
 
 ksolve!(
   KS::CgLanczosSolver{T},
@@ -113,8 +125,19 @@ ksolve!(
   atol::T = T(sqrt(eps(T))),
   rtol::T = T(sqrt(eps(T))),
   itmax::Int = 0,
-) where {T} =
-  cg_lanczos!(KS, K, rhs, M = M, verbose = verbose, atol = atol, rtol = rtol, itmax = itmax)
+  callback::Function = solver -> false,
+  cb_only::Bool = false,
+) where {T} = cg_lanczos!(
+  KS,
+  K,
+  rhs,
+  M = M,
+  verbose = verbose,
+  atol = cb_only ? zero(T) : atol,
+  rtol = cb_only ? zero(T) : rtol,
+  itmax = itmax,
+  callback = callback,
+)
 
 ksolve!(
   KS::CrSolver{T},
@@ -125,7 +148,19 @@ ksolve!(
   atol::T = T(sqrt(eps(T))),
   rtol::T = T(sqrt(eps(T))),
   itmax::Int = 0,
-) where {T} = cr!(KS, K, rhs, M = M, verbose = verbose, atol = atol, rtol = rtol, itmax = itmax)
+  callback::Function = solver -> false,
+  cb_only::Bool = false,
+) where {T} = cr!(
+  KS,
+  K,
+  rhs,
+  M = M,
+  verbose = verbose,
+  atol = cb_only ? zero(T) : atol,
+  rtol = cb_only ? zero(T) : rtol,
+  itmax = itmax,
+  callback = callback,
+)
 
 ksolve!(
   KS::BilqSolver{T},
@@ -147,7 +182,18 @@ ksolve!(
   atol::T = T(sqrt(eps(T))),
   rtol::T = T(sqrt(eps(T))),
   itmax::Int = 0,
-) where {T} = qmr!(KS, K, rhs, verbose = verbose, atol = atol, rtol = rtol, itmax = itmax)
+  callback::Function = solver -> false,
+  cb_only::Bool = false,
+) where {T} = qmr!(
+  KS,
+  K,
+  rhs,
+  verbose = verbose,
+  atol = cb_only ? zero(T) : atol,
+  rtol = cb_only ? zero(T) : rtol,
+  itmax = itmax,
+  callback = callback,
+)
 
 ksolve!(
   KS::UsymlqSolver{T},
@@ -180,7 +226,18 @@ ksolve!(
   atol::T = T(sqrt(eps(T))),
   rtol::T = T(sqrt(eps(T))),
   itmax::Int = 0,
-) where {T} = bicgstab!(KS, K, rhs, verbose = verbose, atol = atol, rtol = rtol, itmax = itmax)
+  callback::Function = solver -> false,
+  cb_only::Bool = false,
+) where {T} = bicgstab!(
+  KS,
+  K,
+  rhs,
+  verbose = verbose,
+  atol = cb_only ? zero(T) : atol,
+  rtol = cb_only ? zero(T) : rtol,
+  itmax = itmax,
+  callback = callback,
+)
 
 ksolve!(
   KS::DiomSolver{T},
@@ -213,7 +270,18 @@ ksolve!(
   atol::T = T(sqrt(eps(T))),
   rtol::T = T(sqrt(eps(T))),
   itmax::Int = 0,
-) where {T} = fom!(KS, K, rhs, verbose = verbose, atol = atol, rtol = rtol, itmax = itmax)
+  callback::Function = solver -> false,
+  cb_only::Bool = false,
+) where {T} = fom!(
+  KS,
+  K,
+  rhs,
+  verbose = verbose,
+  atol = cb_only ? zero(T) : atol,
+  rtol = cb_only ? zero(T) : rtol,
+  itmax = itmax,
+  callback = callback,
+)
 
 ksolve!(
   KS::DqgmresSolver{T},
@@ -275,6 +343,7 @@ ksolve!(
   atol::T = T(sqrt(eps(T))),
   rtol::T = T(sqrt(eps(T))),
   itmax::Int = 0,
+  cb_only::Bool = false,
 ) where {T} = dqgmres!(
   KS,
   K,
@@ -298,8 +367,20 @@ ksolve!(
   atol::T = T(sqrt(eps(T))),
   rtol::T = T(sqrt(eps(T))),
   itmax::Int = 0,
-) where {T} =
-  gmres!(KS, K, rhs, M = I, N = M, verbose = verbose, atol = atol, rtol = rtol, itmax = itmax)
+  callback::Function = solver -> false,
+  cb_only::Bool = false,
+) where {T} = gmres!(
+  KS,
+  K,
+  rhs,
+  M = I,
+  N = M,
+  verbose = verbose,
+  atol = cb_only ? zero(T) : atol,
+  rtol = cb_only ? zero(T) : rtol,
+  itmax = itmax,
+  callback = callback,
+)
 
 ksolve!(
   KS::TricgSolver{T},
@@ -313,6 +394,8 @@ ksolve!(
   rtol::T = T(sqrt(eps(T))),
   gsp::Bool = false,
   itmax::Int = 0,
+  callback::Function = solver -> false,
+  cb_only::Bool = false,
 ) where {T} = tricg!(
   KS,
   A,
@@ -322,9 +405,10 @@ ksolve!(
   N = N,
   flip = true,
   verbose = verbose,
-  atol = atol,
-  rtol = rtol,
+  atol = cb_only ? zero(T) : atol,
+  rtol = cb_only ? zero(T) : rtol,
   itmax = itmax,
+  callback = callback,
 )
 
 ksolve!(
@@ -339,6 +423,8 @@ ksolve!(
   rtol::T = T(sqrt(eps(T))),
   gsp::Bool = false,
   itmax::Int = 0,
+  callback::Function = solver -> false,
+  cb_only::Bool = false,
 ) where {T} = trimr!(
   KS,
   A,
@@ -349,9 +435,10 @@ ksolve!(
   τ = -one(T),
   ν = (gsp ? zero(T) : one(T)),
   verbose = verbose,
-  atol = atol,
-  rtol = rtol,
+  atol = cb_only ? zero(T) : atol,
+  rtol = cb_only ? zero(T) : rtol,
   itmax = itmax,
+  callback = callback,
 )
 
 function ksolve!(
@@ -366,6 +453,8 @@ function ksolve!(
   rtol::T = T(sqrt(eps(T))),
   gsp::Bool = false,
   itmax::Int = 0,
+  callback::Function = solver -> false,
+  cb_only::Bool = false,
 ) where {T}
   sqrtδI = sqrt(N.λ) * I
   return gpmr!(
@@ -381,9 +470,10 @@ function ksolve!(
     λ = -one(T),
     μ = gsp ? zero(T) : one(T),
     verbose = verbose,
-    atol = atol,
-    rtol = rtol,
+    atol = cb_only ? zero(T) : atol,
+    rtol = cb_only ? zero(T) : rtol,
     itmax = itmax,
+    callback = callback,
   )
 end
 
@@ -399,6 +489,8 @@ function ksolve!(
   atol::T = T(sqrt(eps(T))),
   rtol::T = T(sqrt(eps(T))),
   itmax::Int = 0,
+  callback::Function = solver -> false,
+  cb_only::Bool = false,
 ) where {T}
   return gpmr!(
     KS,
@@ -412,9 +504,10 @@ function ksolve!(
     F = N,
     λ = -one(T),
     verbose = verbose,
-    atol = atol,
-    rtol = rtol,
+    atol = cb_only ? zero(T) : atol,
+    rtol = cb_only ? zero(T) : rtol,
     itmax = itmax,
+    callback = callback,
   )
 end
 

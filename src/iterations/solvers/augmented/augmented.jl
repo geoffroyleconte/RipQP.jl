@@ -49,13 +49,13 @@ mutable struct AugmentedToK3Residuals{T, S <: AbstractVector{T}, M}
   nupp::Int
 end
 
-AugmentedToK3Residuals(
+ToK3Residuals(
   K::M,
   rhs::S,
   itd::IterData{T, S},
   pt::Point{T, S},
   id::QM_IntData,
-  sp::SolverParams,
+  sp::AugmentedParams,
 ) where {T, S, M} = AugmentedToK3Residuals{T, S, M}(
   K,
   rhs,

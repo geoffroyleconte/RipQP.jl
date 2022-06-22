@@ -15,7 +15,7 @@ The outer constructor
                    atol_min = 1.0e-10, rtol_min = 1.0e-10,
                    ρ0 = sqrt(eps()) * 1e5, δ0 = sqrt(eps()) * 1e5,
                    ρ_min = 1e3 * sqrt(eps()), δ_min = 1e4 * sqrt(eps()),
-                   itmax = 0, mem = 20)
+                   itmax = 0, mem = 20, k3_resid = false, cb_only = false)
 
 creates a [`RipQP.SolverParams`](@ref).
 The available methods are:
@@ -39,6 +39,8 @@ mutable struct K3KrylovParams{T, PT} <: NewtonKrylovParams{T, PT}
   δ_min::T
   itmax::Int
   mem::Int
+  k3_resid::Bool
+  cb_only::Bool # deactivate stop crit for Krylov method, leaving only the callback
 end
 
 function K3KrylovParams{T}(;
@@ -56,6 +58,8 @@ function K3KrylovParams{T}(;
   δ_min::T = T(1e4 * sqrt(eps())),
   itmax::Int = 0,
   mem::Int = 20,
+  k3_resid = false,
+  cb_only = false,
 ) where {T <: Real}
   return K3KrylovParams(
     uplo,
@@ -72,13 +76,18 @@ function K3KrylovParams{T}(;
     δ_min,
     itmax,
     mem,
+    k3_resid,
+    cb_only,
   )
 end
 
 K3KrylovParams(; kwargs...) = K3KrylovParams{Float64}(; kwargs...)
 
-mutable struct PreallocatedDataK3Krylov{T <: Real, S, L <: LinearOperator, Ksol <: KrylovSolver} <:
+mutable struct PreallocatedDataK3Krylov{T <: Real, S, L <: LinearOperator, 
+  Pr <: PreconditionerData, Ksol <: KrylovSolver,
+  R <: Union{NewtonToK3Residuals{T, S}, Int},} <:
                PreallocatedDataNewtonKrylov{T, S}
+  pdat::Pr
   rhs::S
   rhs_scale::Bool
   regu::Regularization{T}
@@ -92,6 +101,8 @@ mutable struct PreallocatedDataK3Krylov{T <: Real, S, L <: LinearOperator, Ksol 
   atol_min::T
   rtol_min::T
   itmax::Int
+  rd::R
+  cb_only::Bool
 end
 
 function opK3prod!(
@@ -257,8 +268,11 @@ function PreallocatedData(
   rhs = similar(fd.c, id.nvar + id.ncon + id.nlow + id.nupp)
 
   KS = init_Ksolver(K, rhs, sp)
+  pdat = PreconditionerData(sp, id, fd, regu, K)
+  rd = sp.k3_resid ? ToK3Residuals(K, rhs, itd, pt, id, sp) : 0
 
   return PreallocatedDataK3Krylov(
+    pdat,
     rhs,
     sp.rhs_scale,
     regu,
@@ -272,6 +286,8 @@ function PreallocatedData(
     T(sp.atol_min),
     T(sp.rtol_min),
     sp.itmax,
+    rd,
+    sp.cb_only,
   )
 end
 
@@ -305,11 +321,13 @@ function solver!(
     pad.KS,
     pad.K,
     pad.rhs,
-    I,
+    pad.pdat.P,
     verbose = 0,
     atol = pad.atol,
     rtol = pad.rtol,
     itmax = pad.itmax,
+    callback = pad.rd == 0 ? solver -> false : solver -> pad.rd(solver, itd.σ, itd.μ, res.rbNorm, res.rcNorm),
+    cb_only = pad.cb_only,
   )
   update_kresiduals_history!(res, pad.K, pad.KS.x, pad.rhs)
   pad.kiter += niterations(pad.KS)
@@ -336,6 +354,8 @@ function update_pad!(
 ) where {T <: Real}
   if cnts.k != 0
     update_regu!(pad.regu)
+  else
+    pad.rd != 0 && set_rd_init_res!(pad.rd, itd.μ, res.rbNorm, res.rcNorm)
   end
 
   update_krylov_tol!(pad)
@@ -343,7 +363,7 @@ function update_pad!(
   pad.ρv[1] = pad.regu.ρ
   pad.δv[1] = pad.regu.δ
 
-  # update_preconditioner!(pad.pdat, pad, itd, pt, id, fd, cnts)
+  update_preconditioner!(pad.pdat, pad, itd, pt, id, fd, cnts)
 
   return 0
 end
