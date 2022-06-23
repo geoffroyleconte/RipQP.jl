@@ -11,7 +11,7 @@ The outer constructor
                      atol_min = 1.0e-10, rtol_min = 1.0e-10,
                      ρ0 = sqrt(eps()) * 1e5, δ0 = sqrt(eps()) * 1e5, 
                      ρ_min = 1e2 * sqrt(eps()), δ_min = 1e2 * sqrt(eps()),
-                     itmax = 0, mem = 20)
+                     itmax = 0, mem = 20, k3_resid = false, cb_only = false)
 
 creates a [`RipQP.SolverParams`](@ref).
 The available methods are:
@@ -34,6 +34,8 @@ mutable struct K2_5KrylovParams{T, PT} <: AugmentedKrylovParams{T, PT}
   δ_min::T
   itmax::Int
   mem::Int
+  k3_resid::Bool
+  cb_only::Bool # deactivate stop crit for Krylov method, leaving only the callback
 end
 
 function K2_5KrylovParams{T}(;
@@ -51,6 +53,8 @@ function K2_5KrylovParams{T}(;
   δ_min::T = 1e3 * sqrt(eps()),
   itmax::Int = 0,
   mem::Int = 20,
+  k3_resid = false,
+  cb_only = false,
 ) where {T <: Real}
   return K2_5KrylovParams(
     uplo,
@@ -67,10 +71,108 @@ function K2_5KrylovParams{T}(;
     δ_min,
     itmax,
     mem,
+    k3_resid,
+    cb_only,
   )
 end
 
 K2_5KrylovParams(; kwargs...) = K2_5KrylovParams{Float64}(; kwargs...)
+
+mutable struct K2_5ToK3Residuals{T, S <: AbstractVector{T}, M}
+  K::M
+  rhs::S
+  formul::Symbol
+  atol::T
+  rtol::T
+  ϵ_d::S
+  ϵ_p::S
+  ϵ_l::S
+  ϵ_u::S
+  ϵK2_5::S
+  ξ_l::S
+  ξ_u::S
+  Δs_l::S
+  Δs_u::S
+  s_l::S
+  s_u::S
+  x_m_lvar::S
+  uvar_m_x::S
+  sqrtX1X2::S
+  μ0::T
+  rbNorm0::T
+  rcNorm0::T
+  nvar::Int
+  ncon::Int
+  ilow::Vector{Int}
+  iupp::Vector{Int}
+  nlow::Int
+  nupp::Int
+end
+
+ToK3Residuals(
+  K::M,
+  rhs::S,
+  itd::IterData{T, S},
+  pt::Point{T, S},
+  id::QM_IntData,
+  sp::K2_5KrylovParams,
+  sqrtX1X2::S,
+) where {T, S, M} = K2_5ToK3Residuals{T, S, M}(
+  K,
+  rhs,
+  :K2,
+  T(sp.atol_min),
+  T(sp.rtol_min),
+  S(undef, id.nvar),
+  S(undef, id.ncon),
+  S(undef, id.nlow),
+  S(undef, id.nupp),
+  S(undef, id.nvar + id.ncon),
+  S(undef, id.nlow),
+  S(undef, id.nupp),
+  S(undef, id.nlow),
+  S(undef, id.nupp),
+  pt.s_l,
+  pt.s_u,
+  itd.x_m_lvar,
+  itd.uvar_m_x,
+  sqrtX1X2,
+  zero(T),
+  zero(T),
+  zero(T),
+  id.nvar,
+  id.ncon,
+  id.ilow,
+  id.iupp,
+  id.nlow,
+  id.nupp,
+)
+
+function set_rd_init_res!(rd::K2_5ToK3Residuals{T}, μ::T, rbNorm0::T, rcNorm0::T) where {T}
+  rd.μ0 = μ
+  rd.rbNorm0 = rbNorm0
+  rd.rcNorm0 = rcNorm0
+end
+
+function (rd::K2_5ToK3Residuals)(solver::KrylovSolver{T}, σ::T, μ::T, rbNorm::T, rcNorm::T) where {T}
+  mul!(rd.ϵK2_5, rd.K, solver.x)
+  rd.ϵK2_5 .-= rd.rhs
+  rd.ϵ_p .= @views rd.ϵK2_5[(rd.nvar+1): end]
+  @. rd.ξ_l = -rd.s_l * rd.x_m_lvar + σ * μ
+  @. rd.ξ_u = -rd.s_u * rd.uvar_m_x + σ * μ
+  @. rd.Δs_l = @views (σ * μ - rd.s_l * solver.x[rd.ilow] / rd.sqrtX1X2[rd.ilow]) / rd.x_m_lvar - rd.s_l
+  @. rd.Δs_u = @views (σ * μ + rd.s_u * solver.x[rd.iupp] / rd.sqrtX1X2[rd.iupp]) / rd.uvar_m_x - rd.s_u
+  @. rd.ϵ_l = @views rd.s_l * solver.x[rd.ilow] / rd.sqrtX1X2[rd.ilow] + rd.x_m_lvar * rd.Δs_l + rd.s_l * rd.x_m_lvar - σ * μ
+  @. rd.ϵ_u = @views -rd.s_u * solver.x[rd.iupp] / rd.sqrtX1X2[rd.iupp] + rd.uvar_m_x * rd.Δs_u + rd.s_u * rd.uvar_m_x - σ * μ
+  rd.ϵ_d .= @views rd.ϵK2_5[1:rd.nvar]
+  @. rd.ϵ_d[rd.ilow] += rd.ϵ_l / rd.x_m_lvar
+  @. rd.ϵ_d[rd.iupp] -= rd.ϵ_u / rd.uvar_m_x
+  rd.ϵ_d ./= rd.sqrtX1X2
+  return (norm(rd.ϵ_d, Inf) ≤ min(rd.atol, rd.rtol * rd.rcNorm0 * μ / rd.μ0) &&
+          norm(rd.ϵ_p, Inf) ≤ min(rd.atol, rd.rtol * rd.rbNorm0 * μ / rd.μ0) &&
+          norm(rd.ϵ_l, Inf) ≤ min(rd.atol, rd.rtol * norm(rd.ξ_l, Inf) * μ / rd.μ0) &&
+          norm(rd.ϵ_u, Inf) ≤ min(rd.atol, rd.rtol * norm(rd.ξ_u, Inf) * μ / rd.μ0))
+end
 
 mutable struct PreallocatedDataK2_5Krylov{
   T <: Real,
@@ -78,6 +180,7 @@ mutable struct PreallocatedDataK2_5Krylov{
   L <: LinearOperator,
   Pr <: PreconditionerData,
   Ksol <: KrylovSolver,
+  R <: Union{K2_5ToK3Residuals{T, S}, Int},
 } <: PreallocatedDataAugmentedKrylov{T, S}
   pdat::Pr
   D::S                                  # temporary top-left diagonal
@@ -96,6 +199,8 @@ mutable struct PreallocatedDataK2_5Krylov{
   atol_min::T
   rtol_min::T
   itmax::Int
+  rd::R
+  cb_only::Bool
 end
 
 function opK2_5prod!(
@@ -171,6 +276,7 @@ function PreallocatedData(
   KS = init_Ksolver(K, rhs, sp)
 
   pdat = PreconditionerData(sp, id, fd, regu, D, K)
+  rd = sp.k3_resid ? ToK3Residuals(K, rhs, itd, pt, id, sp, sqrtX1X2) : 0
 
   return PreallocatedDataK2_5Krylov(
     pdat,
@@ -190,6 +296,8 @@ function PreallocatedData(
     T(sp.atol_min),
     T(sp.rtol_min),
     sp.itmax,
+    rd,
+    sp.cb_only,
   )
 end
 
@@ -222,6 +330,8 @@ function solver!(
     atol = pad.atol,
     rtol = pad.rtol,
     itmax = pad.itmax,
+    callback = pad.rd == 0 ? solver -> false : solver -> pad.rd(solver, itd.σ, itd.μ, res.rbNorm, res.rcNorm),
+    cb_only = pad.cb_only,
   )
   update_kresiduals_history!(res, pad.K, pad.KS.x, pad.rhs)
   pad.kiter += niterations(pad.KS)
@@ -247,6 +357,8 @@ function update_pad!(
 ) where {T <: Real}
   if cnts.k != 0
     update_regu!(pad.regu)
+  else
+    pad.rd != 0 && set_rd_init_res!(pad.rd, itd.μ, res.rbNorm, res.rcNorm)
   end
 
   update_krylov_tol!(pad)
