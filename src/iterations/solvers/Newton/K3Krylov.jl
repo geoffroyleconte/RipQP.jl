@@ -83,9 +83,68 @@ end
 
 K3KrylovParams(; kwargs...) = K3KrylovParams{Float64}(; kwargs...)
 
+mutable struct K3Residuals{T, S <: AbstractVector{T}, M}
+  K::M
+  rhs::S
+  atol::T
+  rtol::T
+  ϵK3::S
+  μ0::T
+  rbNorm0::T
+  rcNorm0::T
+  nvar::Int
+  ncon::Int
+  nlow::Int
+  nupp::Int
+end
+
+ToK3Residuals(
+  K::M,
+  rhs::S,
+  itd::IterData{T, S},
+  pt::Point{T, S},
+  id::QM_IntData,
+  sp::K3KrylovParams,
+) where {T, S, M} = K3Residuals{T, S, M}(
+  K,
+  rhs,
+  T(sp.atol_min),
+  T(sp.rtol_min),
+  S(undef, id.nvar + id.ncon + id.nlow + id.nupp),
+  zero(T),
+  zero(T),
+  zero(T),
+  id.nvar,
+  id.ncon,
+  id.nlow,
+  id.nupp,
+)
+
+
+function set_rd_init_res!(rd::K3Residuals{T}, μ::T, rbNorm0::T, rcNorm0::T) where {T}
+  rd.μ0 = μ
+  rd.rbNorm0 = rbNorm0
+  rd.rcNorm0 = rcNorm0
+end
+
+function (rd::K3Residuals)(solver::KrylovSolver{T}, σ::T, μ::T, rbNorm::T, rcNorm::T) where {T}
+  mul!(rd.ϵK3, rd.K, solver.x)
+  rd.ϵK3 .-= rd.rhs
+  ϵ_dNorm = @views norm(rd.ϵK3[1:rd.nvar], Inf)
+  ϵ_pNorm = @views norm(rd.ϵK3[(rd.nvar + 1): (rd.nvar + rd.ncon)], Inf)
+  ϵ_lNorm = @views norm(rd.ϵK3[(rd.nvar + rd.ncon + 1): (rd.nvar + rd.ncon + rd.nlow)], Inf)
+  ϵ_uNorm = @views norm(rd.ϵK3[(rd.nvar + rd.ncon + rd.nlow + 1): (rd.nvar + rd.ncon + rd.nlow + rd.nupp)], Inf)
+  ξ_lNorm = @views norm(rd.rhs[(rd.nvar + rd.ncon + 1): (rd.nvar + rd.ncon + rd.nlow)], Inf)
+  ξ_uNorm = @views norm(rd.rhs[(rd.nvar + rd.ncon + rd.nlow + 1): (rd.nvar + rd.ncon + rd.nlow + rd.nupp)], Inf)
+  return (ϵ_dNorm ≤ min(rd.atol, rd.rtol * rd.rcNorm0 * μ / rd.μ0) &&
+          ϵ_pNorm ≤ min(rd.atol, rd.rtol * rd.rbNorm0 * μ / rd.μ0) &&
+          ϵ_lNorm ≤ min(rd.atol, rd.rtol * ξ_lNorm * μ / rd.μ0) &&
+          ϵ_uNorm ≤ min(rd.atol, rd.rtol * ξ_uNorm * μ / rd.μ0))
+end
+
 mutable struct PreallocatedDataK3Krylov{T <: Real, S, L <: LinearOperator, 
   Pr <: PreconditionerData, Ksol <: KrylovSolver,
-  R <: Union{NewtonToK3Residuals{T, S}, Int},} <:
+  R <: Union{K3Residuals{T, S}, Int}} <:
                PreallocatedDataNewtonKrylov{T, S}
   pdat::Pr
   rhs::S

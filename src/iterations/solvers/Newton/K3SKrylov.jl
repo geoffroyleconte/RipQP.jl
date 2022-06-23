@@ -17,7 +17,7 @@ The outer constructor
                      atol_min = 1.0e-10, rtol_min = 1.0e-10,
                      ρ0 = sqrt(eps()) * 1e5, δ0 = sqrt(eps()) * 1e5,
                      ρ_min = 1e3 * sqrt(eps()), δ_min = 1e4 * sqrt(eps()),
-                     itmax = 0, mem = 20)
+                     itmax = 0, mem = 20, k3_resid = false, cb_only = false)
 
 creates a [`RipQP.SolverParams`](@ref).
 The available methods are:
@@ -41,6 +41,8 @@ mutable struct K3SKrylovParams{T, PT} <: NewtonKrylovParams{T, PT}
   δ_min::T
   itmax::Int
   mem::Int
+  k3_resid::Bool
+  cb_only::Bool # deactivate stop crit for Krylov method, leaving only the callback
 end
 
 function K3SKrylovParams{T}(;
@@ -58,6 +60,8 @@ function K3SKrylovParams{T}(;
   δ_min::T = T(1e2 * sqrt(eps())),
   itmax::Int = 0,
   mem::Int = 20,
+  k3_resid = false,
+  cb_only = false,
 ) where {T <: Real}
   return K3SKrylovParams(
     uplo,
@@ -74,10 +78,82 @@ function K3SKrylovParams{T}(;
     δ_min,
     itmax,
     mem,
+    k3_resid,
+    cb_only,
   )
 end
 
 K3SKrylovParams(; kwargs...) = K3SKrylovParams{Float64}(; kwargs...)
+
+mutable struct K3SToK3Residuals{T, S <: AbstractVector{T}, M}
+  K::M
+  rhs::S
+  atol::T
+  rtol::T
+  ϵK3S::S
+  μ0::T
+  rbNorm0::T
+  rcNorm0::T
+  s_l::S
+  s_u::S
+  ϵ_l::S
+  ϵ_u::S
+  nvar::Int
+  ncon::Int
+  nlow::Int
+  nupp::Int
+end
+
+ToK3Residuals(
+  K::M,
+  rhs::S,
+  itd::IterData{T, S},
+  pt::Point{T, S},
+  id::QM_IntData,
+  sp::K3SKrylovParams,
+) where {T, S, M} = K3SToK3Residuals{T, S, M}(
+  K,
+  rhs,
+  T(sp.atol_min),
+  T(sp.rtol_min),
+  S(undef, id.nvar + id.ncon + id.nlow + id.nupp),
+  zero(T),
+  zero(T),
+  zero(T),
+  pt.s_l,
+  pt.s_u,
+  similar(pt.s_l),
+  similar(pt.s_u),
+  id.nvar,
+  id.ncon,
+  id.nlow,
+  id.nupp,
+)
+
+function set_rd_init_res!(rd::K3SToK3Residuals{T}, μ::T, rbNorm0::T, rcNorm0::T) where {T}
+  rd.μ0 = μ
+  rd.rbNorm0 = rbNorm0
+  rd.rcNorm0 = rcNorm0
+end
+
+function (rd::K3SToK3Residuals)(solver::KrylovSolver{T}, σ::T, μ::T, rbNorm::T, rcNorm::T) where {T}
+  mul!(rd.ϵK3S, rd.K, solver.x)
+  rd.ϵK3S .-= rd.rhs
+  ϵ_dNorm = @views norm(rd.ϵK3S[1:rd.nvar], Inf)
+  ϵ_pNorm = @views norm(rd.ϵK3S[(rd.nvar + 1): (rd.nvar + rd.ncon)], Inf)
+  @. rd.ϵ_l = @views rd.s_l * rd.ϵK3S[(rd.nvar + rd.ncon + 1): (rd.nvar + rd.ncon + rd.nlow)]
+  ϵ_lNorm = @views norm(rd.ϵ_l, Inf)
+  @. rd.ϵ_u = @views rd.s_u * rd.ϵK3S[(rd.nvar + rd.ncon + rd.nlow + 1): (rd.nvar + rd.ncon + rd.nlow + rd.nupp)]
+  ϵ_uNorm = @views norm(rd.ϵ_u, Inf)
+  @. rd.ϵ_l = @views rd.rhs[(rd.nvar + rd.ncon + 1): (rd.nvar + rd.ncon + rd.nlow)] / rd.s_l
+  ξ_lNorm = @views norm(rd.ϵ_l, Inf)
+  @. rd.ϵ_u = @views rd.rhs[(rd.nvar + rd.ncon + rd.nlow + 1): (rd.nvar + rd.ncon + rd.nlow + rd.nupp)] / rd.s_u
+  ξ_uNorm = @views norm(rd.ϵ_u, Inf)
+  return (ϵ_dNorm ≤ min(rd.atol, rd.rtol * rd.rcNorm0 * μ / rd.μ0) &&
+          ϵ_pNorm ≤ min(rd.atol, rd.rtol * rd.rbNorm0 * μ / rd.μ0) &&
+          ϵ_lNorm ≤ min(rd.atol, rd.rtol * ξ_lNorm * μ / rd.μ0) &&
+          ϵ_uNorm ≤ min(rd.atol, rd.rtol * ξ_uNorm * μ / rd.μ0))
+end
 
 mutable struct PreallocatedDataK3SKrylov{
   T <: Real,
@@ -85,6 +161,7 @@ mutable struct PreallocatedDataK3SKrylov{
   L <: LinearOperator,
   Pr <: PreconditionerData,
   Ksol <: KrylovSolver,
+  R <: Union{K3SToK3Residuals{T, S}, Int},
 } <: PreallocatedDataNewtonKrylov{T, S}
   pdat::Pr
   rhs::S
@@ -102,6 +179,8 @@ mutable struct PreallocatedDataK3SKrylov{
   atol_min::T
   rtol_min::T
   itmax::Int
+  rd::R
+  cb_only::Bool
 end
 
 function opK3Sprod!(
@@ -198,6 +277,7 @@ function PreallocatedData(
   rhs = similar(fd.c, id.nvar + id.ncon + id.nlow + id.nupp)
   KS = init_Ksolver(K, rhs, sp)
   pdat = PreconditionerData(sp, id, fd, regu, K)
+  rd = sp.k3_resid ? ToK3Residuals(K, rhs, itd, pt, id, sp) : 0
 
   return PreallocatedDataK3SKrylov(
     pdat,
@@ -216,6 +296,8 @@ function PreallocatedData(
     T(sp.atol_min),
     T(sp.rtol_min),
     sp.itmax,
+    rd,
+    sp.cb_only,
   )
 end
 
@@ -254,6 +336,8 @@ function solver!(
     atol = pad.atol,
     rtol = pad.rtol,
     itmax = pad.itmax,
+    callback = pad.rd == 0 ? solver -> false : solver -> pad.rd(solver, itd.σ, itd.μ, res.rbNorm, res.rcNorm),
+    cb_only = pad.cb_only,
   )
   update_kresiduals_history!(res, pad.K, pad.KS.x, pad.rhs)
   pad.kiter += niterations(pad.KS)
@@ -280,6 +364,8 @@ function update_pad!(
 ) where {T <: Real}
   if cnts.k != 0
     update_regu!(pad.regu)
+  else
+    pad.rd != 0 && set_rd_init_res!(pad.rd, itd.μ, res.rbNorm, res.rcNorm)
   end
 
   update_krylov_tol!(pad)
