@@ -16,6 +16,10 @@ abstract type PreallocatedDataAugmentedKrylov{T <: Real, S} <: PreallocatedDataA
 
 uses_krylov(pad::PreallocatedDataAugmentedKrylov) = true
 
+abstract type PreallocatedDataAugmentedStructured{T <: Real, S} <: PreallocatedDataAugmented{T, S} end
+
+uses_krylov(pad::PreallocatedDataAugmentedStructured) = true
+
 include("K2Krylov.jl")
 include("K2_5Krylov.jl")
 include("K2Structured.jl")

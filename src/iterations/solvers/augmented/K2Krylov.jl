@@ -114,7 +114,6 @@ convert(::Type{MatrixTools{T}}, mt::MatrixTools) where {T} = MatrixTools(
 mutable struct K2ToK3Residuals{T, S <: AbstractVector{T}, M}
   K::M
   rhs::S
-  formul::Symbol
   atol::T
   rtol::T
   ϵ_d::S
@@ -151,7 +150,6 @@ ToK3Residuals(
 ) where {T, S, M} = K2ToK3Residuals{T, S, M}(
   K,
   rhs,
-  :K2,
   T(sp.atol_min),
   T(sp.rtol_min),
   S(undef, id.nvar),
