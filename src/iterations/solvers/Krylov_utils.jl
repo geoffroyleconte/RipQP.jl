@@ -300,7 +300,7 @@ ksolve!(
     K,
     rhs,
     M = M,
-    N = M,
+    N = I,
     verbose = verbose,
     atol = cb_only ? zero(T) : atol,
     rtol = cb_only ? zero(T) : rtol,
@@ -334,17 +334,17 @@ ksolve!(
   )
 
 ksolve!(
-  KS::DqgmresSolver{T},
+  KS::GmresSolver{T},
   K,
   rhs::AbstractVector{T},
-  M,
-  callback::Function;
+  M;
   verbose::Integer = 0,
   atol::T = T(sqrt(eps(T))),
   rtol::T = T(sqrt(eps(T))),
   itmax::Int = 0,
+  callback::Function = solver -> false,
   cb_only::Bool = false,
-) where {T} = dqgmres!(
+) where {T} = gmres!(
   KS,
   K,
   rhs,
@@ -362,25 +362,27 @@ ksolve!(
   KS::GmresSolver{T},
   K,
   rhs::AbstractVector{T},
-  M;
+  P::LRPrecond;
   verbose::Integer = 0,
   atol::T = T(sqrt(eps(T))),
   rtol::T = T(sqrt(eps(T))),
   itmax::Int = 0,
   callback::Function = solver -> false,
   cb_only::Bool = false,
-) where {T} = gmres!(
-  KS,
-  K,
-  rhs,
-  M = I,
-  N = M,
-  verbose = verbose,
-  atol = cb_only ? zero(T) : atol,
-  rtol = cb_only ? zero(T) : rtol,
-  itmax = itmax,
-  callback = callback,
-)
+) where {T} =
+  gmres!(
+    KS,
+    K,
+    rhs,
+    M = P.M,
+    N = P.N,
+    restart = true,
+    verbose = verbose,
+    atol = cb_only ? zero(T) : atol,
+    rtol = cb_only ? zero(T) : rtol,
+    itmax = itmax,
+    callback = callback,
+  )
 
 ksolve!(
   KS::TricgSolver{T},

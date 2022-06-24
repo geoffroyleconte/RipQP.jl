@@ -86,7 +86,7 @@ end
 
 K1KrylovParams(; kwargs...) = K1KrylovParams{Float64}(; kwargs...)
 
-mutable struct K1ToK3Residuals{T, S <: AbstractVector{T}, M, MA}
+mutable struct K1ToK3Residuals{T, S <: AbstractVector{T}, M, MA, Sr <: Union{Int, StorageGetxRestartedGmres{S}}}
   K::M
   rhs::S
   atol::T
@@ -120,6 +120,7 @@ mutable struct K1ToK3Residuals{T, S <: AbstractVector{T}, M, MA}
   ncon::Int
   nlow::Int
   nupp::Int
+  stor::Sr
 end
 
 ToK3Residuals(
@@ -131,6 +132,7 @@ ToK3Residuals(
   sp::K1KrylovParams,
   fd::Abstract_QM_FloatData{T, S},
   D::S,
+  KS::KrylovSolver,
 ) where {T, S} = K1ToK3Residuals(
   K,
   rhs,
@@ -165,6 +167,7 @@ ToK3Residuals(
   id.ncon,
   id.nlow,
   id.nupp,
+  typeof(KS) <: GmresSolver ? StorageGetxRestartedGmres(KS) : 0,
 )
 
 function set_rd_init_res!(rd::K1ToK3Residuals{T}, μ::T, rbNorm0::T, rcNorm0::T) where {T}
@@ -174,6 +177,7 @@ function set_rd_init_res!(rd::K1ToK3Residuals{T}, μ::T, rbNorm0::T, rcNorm0::T)
 end
 
 function (rd::K1ToK3Residuals)(solver::KrylovSolver{T}, σ::T, μ::T, rbNorm::T, rcNorm::T, dd::AbstractVector{T}) where {T}
+  rd.stor != 0 && get_x_restarted_gmres!(solver, rd.K, rd.stor, I)
   mul!(rd.ϵK1, rd.K, solver.x)
   rd.ϵK1 .-= rd.rhs
   rd.ξ1 .= @views dd[1:rd.nvar]
@@ -287,7 +291,7 @@ function PreallocatedData(
   rhs = similar(fd.c, id.ncon)
   KS = init_Ksolver(K, rhs, sp)
   pdat = PreconditionerData(sp, id, fd, regu, D, K)
-  rd = sp.k3_resid ? ToK3Residuals(K, rhs, itd, pt, id, sp, fd, D) : 0
+  rd = sp.k3_resid ? ToK3Residuals(K, rhs, itd, pt, id, sp, fd, D, KS) : 0
 
   return PreallocatedDataK1Krylov(
     pdat,

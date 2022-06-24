@@ -78,7 +78,7 @@ end
 
 K2_5KrylovParams(; kwargs...) = K2_5KrylovParams{Float64}(; kwargs...)
 
-mutable struct K2_5ToK3Residuals{T, S <: AbstractVector{T}, M}
+mutable struct K2_5ToK3Residuals{T, S <: AbstractVector{T}, M, Sr <: Union{Int, StorageGetxRestartedGmres{S}}}
   K::M
   rhs::S
   formul::Symbol
@@ -107,6 +107,7 @@ mutable struct K2_5ToK3Residuals{T, S <: AbstractVector{T}, M}
   iupp::Vector{Int}
   nlow::Int
   nupp::Int
+  stor::Sr
 end
 
 ToK3Residuals(
@@ -117,7 +118,8 @@ ToK3Residuals(
   id::QM_IntData,
   sp::K2_5KrylovParams,
   sqrtX1X2::S,
-) where {T, S, M} = K2_5ToK3Residuals{T, S, M}(
+  KS::KrylovSolver,
+) where {T, S, M} = K2_5ToK3Residuals(
   K,
   rhs,
   :K2,
@@ -146,6 +148,7 @@ ToK3Residuals(
   id.iupp,
   id.nlow,
   id.nupp,
+  typeof(KS) <: GmresSolver ? StorageGetxRestartedGmres(KS) : 0
 )
 
 function set_rd_init_res!(rd::K2_5ToK3Residuals{T}, μ::T, rbNorm0::T, rcNorm0::T) where {T}
@@ -155,6 +158,7 @@ function set_rd_init_res!(rd::K2_5ToK3Residuals{T}, μ::T, rbNorm0::T, rcNorm0::
 end
 
 function (rd::K2_5ToK3Residuals)(solver::KrylovSolver{T}, σ::T, μ::T, rbNorm::T, rcNorm::T) where {T}
+  rd.stor != 0 && get_x_restarted_gmres!(solver, rd.K, rd.stor, I)
   mul!(rd.ϵK2_5, rd.K, solver.x)
   rd.ϵK2_5 .-= rd.rhs
   rd.ϵ_p .= @views rd.ϵK2_5[(rd.nvar+1): end]
@@ -276,7 +280,7 @@ function PreallocatedData(
   KS = init_Ksolver(K, rhs, sp)
 
   pdat = PreconditionerData(sp, id, fd, regu, D, K)
-  rd = sp.k3_resid ? ToK3Residuals(K, rhs, itd, pt, id, sp, sqrtX1X2) : 0
+  rd = sp.k3_resid ? ToK3Residuals(K, rhs, itd, pt, id, sp, sqrtX1X2, KS) : 0
 
   return PreallocatedDataK2_5Krylov(
     pdat,

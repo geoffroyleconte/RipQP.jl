@@ -111,7 +111,7 @@ convert(::Type{MatrixTools{T}}, mt::MatrixTools) where {T} = MatrixTools(
   Diagonal(convert(Vector{T}, mt.C_eq.diag)),
 )
 
-mutable struct K2ToK3Residuals{T, S <: AbstractVector{T}, M}
+mutable struct K2ToK3Residuals{T, S <: AbstractVector{T}, M, Sr <: Union{Int, StorageGetxRestartedGmres{S}}}
   K::M
   rhs::S
   atol::T
@@ -138,6 +138,7 @@ mutable struct K2ToK3Residuals{T, S <: AbstractVector{T}, M}
   iupp::Vector{Int}
   nlow::Int
   nupp::Int
+  stor::Sr
 end
 
 ToK3Residuals(
@@ -147,7 +148,8 @@ ToK3Residuals(
   pt::Point{T, S},
   id::QM_IntData,
   sp::K2KrylovParams,
-) where {T, S, M} = K2ToK3Residuals{T, S, M}(
+  KS::KrylovSolver,
+) where {T, S, M} = K2ToK3Residuals(
   K,
   rhs,
   T(sp.atol_min),
@@ -174,6 +176,7 @@ ToK3Residuals(
   id.iupp,
   id.nlow,
   id.nupp,
+  typeof(KS) <: GmresSolver ? StorageGetxRestartedGmres(KS) : 0
 )
 
 function set_rd_init_res!(rd::K2ToK3Residuals{T}, μ::T, rbNorm0::T, rcNorm0::T) where {T}
@@ -183,6 +186,7 @@ function set_rd_init_res!(rd::K2ToK3Residuals{T}, μ::T, rbNorm0::T, rcNorm0::T)
 end
 
 function (rd::K2ToK3Residuals)(solver::KrylovSolver{T}, σ::T, μ::T, rbNorm::T, rcNorm::T) where {T}
+  rd.stor != 0 && get_x_restarted_gmres!(solver, rd.K, rd.stor, I)
   mul!(rd.ϵK2, rd.K, solver.x)
   rd.ϵK2 .-= rd.rhs
   rd.ϵ_p .= @views rd.ϵK2[(rd.nvar+1): end]
@@ -300,7 +304,7 @@ function PreallocatedData(
   rhs = similar(fd.c, id.nvar + id.ncon)
   KS = @timeit_debug to "krylov solver setup" init_Ksolver(K, rhs, sp)
   pdat = @timeit_debug to "preconditioner setup" PreconditionerData(sp, id, fd, regu, D, K)
-  rd = sp.k3_resid ? ToK3Residuals(K, rhs, itd, pt, id, sp) : 0
+  rd = sp.k3_resid ? ToK3Residuals(K, rhs, itd, pt, id, sp, KS) : 0
 
   return PreallocatedDataK2Krylov(
     pdat,
