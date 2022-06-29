@@ -70,8 +70,18 @@ function solveK2basic(K, A0, rhs1, rhs2, M0, δ, atol, rtol)
   M11 = Diagonal(Vector(M11.diag))
   M22 = Diagonal(Mbis[notbasis,notbasis])
   M22 = Diagonal(Vector(M22.diag))
+  # LP: M = I
+  # Mbis = [I    0]
+  #        [0    I]
+  # Abis = [A*D  √δI] = [B N]
+  # K = [Mbis11  Mbis12   B ]
+  #     [Mbis21  Mbis22   N ]
+  #     [   B      N      δI]
   T = B * inv(M11) * B'
-  Kbis = [-M22 N'; N T]
+  # Kbis = [-I         Nᵀ   ]
+  #        [N     B M11⁻¹ Bᵀ]
+  Kbis = [-M22    N';
+            N     T]
 
   rhs1bis = [rhs1D; zeros(m)][notbasis]
   rhs2bis = rhs2 + B * inv(M11) * [rhs1D; zeros(m)][basis]
@@ -81,6 +91,9 @@ function solveK2basic(K, A0, rhs1, rhs2, M0, δ, atol, rtol)
   opM = LinearOperator(Float64, n, n, true, true, (y, v, α, β) -> y .= M22 \ v)
   opB = LinearOperator(Float64, m, m, true, true, (y, w, α, β) -> y .= lu_B' \ (M11 * (lu_B \ w)))
   opD = BlockDiagonalOperator(opM, opB)
+  # precond
+  # P = [M22        0     ]
+  #     [0      B M11⁻¹ Bᵀ]
 
   Kbisop = LinearOperator(Symmetric(Kbis, :U))
   x2N, stats2 = minres_qlp(Kbisop, rhsbis, M = opD, atol=atol, rtol=rtol, 
@@ -89,6 +102,7 @@ function solveK2basic(K, A0, rhs1, rhs2, M0, δ, atol, rtol)
   println(norm(rhsbis - Kbis * x2N))
 
   x2 = zeros(n+m)
+  # xB = M11⁻¹ * Bᵀ 
   x2[notbasis] .= x2N[1:length(notbasis)]
   x2[basis] .= inv(M11) * (B' * x2N[length(notbasis)+1: end] - [rhs1D; zeros(m)][basis]) 
   return x2[1:n] .* D.diag[1:n], x2N[length(notbasis)+1: end]
