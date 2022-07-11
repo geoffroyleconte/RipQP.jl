@@ -109,9 +109,12 @@ qp_dense = QuadraticModel(
 )
 
 @testset "Dense and LinearOperator QPs" begin
-  stats_linop = ripqp(qp_linop, sp = K2KrylovParams(), ps = false, scaling = false, display = false)
+  qp_linop.meta.x0 .= [1.0e-5 ; 1.5; 1.0e-5]
+  stats_linop = ripqp(qp_linop, sp = K2KrylovParams(), ps = false, scaling = false, display = true, warm_start=true)
   @test isapprox(stats_linop.objective, 1.1249999990782493, atol = 1e-2)
   @test stats_linop.status == :first_order
+  println(stats_linop.solution)
+  println(stats_linop.multipliers)
 
   stats_dense = ripqp(qp_dense, sp = K2KrylovParams(uplo = :U))
   @test isapprox(stats_dense.objective, 1.1249999990782493, atol = 1e-2)

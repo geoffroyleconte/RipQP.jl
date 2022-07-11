@@ -276,16 +276,16 @@ function initialize!(
     pad = PreallocatedData(iconf.sp, fd, id, itd, pt, iconf)
     out = solver!(itd.Δxy, pad, dda, pt, itd, fd, id, res, cnts, T0, :init)
   end
-  pt.x .= itd.Δxy[1:(id.nvar)]
+  !iconf.warm_start && (pt.x .= itd.Δxy[1:(id.nvar)])
   pt.y .= itd.Δxy[(id.nvar + 1):(id.nvar + id.ncon)]
 
-  starting_points!(pt, fd, id, itd, spd)
+  starting_points!(pt, fd, id, itd, spd, iconf.warm_start)
 
   # stopping criterion
   #     rcNorm, rbNorm = norm(rc), norm(rb)
   #     optimal = pdd < ϵ_pdd && rbNorm < ϵ_rb && rcNorm < ϵ_rc
-  res.rb .= itd.Ax .- fd.b
-  res.rc .= itd.ATy .- itd.Qx .- fd.c
+  @. res.rb = itd.Ax - fd.b
+  @. res.rc = itd.ATy - itd.Qx - fd.c
   res.rc[id.ilow] .+= pt.s_l
   res.rc[id.iupp] .-= pt.s_u
   res.rcNorm, res.rbNorm = norm(res.rc, Inf), norm(res.rb, Inf)

@@ -84,6 +84,7 @@ function ripqp(
   itol::InputTol{T0, Int} = InputTol(T0),
   scaling::Bool = true,
   ps::Bool = true,
+  warm_start::Bool = false,
   normalize_rtol::Bool = true,
   kc::I = 0,
   perturb::Bool = false,
@@ -116,6 +117,7 @@ function ripqp(
       Timulti,
       scaling,
       ps,
+      warm_start,
       normalize_rtol,
       kc,
       perturb,
@@ -134,6 +136,9 @@ function ripqp(
       stats_ps = presolve(QM0)
       if stats_ps.status == :unknown
         QM = stats_ps.solver_specific[:presolvedQM]
+        if warm_start
+          copyto_notinlist!(QM.meta.x0, QM0.meta.x0, QM.psd.ifix)
+        end
       else
         return stats_ps
       end
@@ -145,8 +150,12 @@ function ripqp(
     sc, idi, fd_T0, id, ϵ, res, itd, dda, pt, sd, spd, cnts, T =
       @timeit_debug to "allocate workspace" allocate_workspace(QM, iconf, itol, start_time, T0)
 
+    if warm_start
+      pt.x[1:QM.meta.nvar] .= QM.meta.x0
+    end
+
     if iconf.scaling
-      scaling!(fd_T0, id, sd, T0(1.0e-5))
+      scaling!(fd_T0, id, sd, pt.x, T0(1.0e-5))
     end
 
     # extra workspace for multi mode

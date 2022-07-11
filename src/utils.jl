@@ -191,3 +191,19 @@ function show_used_solver(pad::PreallocatedData{T}) where {T}
   slv_name = solver_name(pad)
   @info "Solving in $T using $slv_name"
 end
+
+# update indices not in list
+function copyto_notinlist!(dest, src, list)
+  c = 0
+  c_list = 1
+  nlist = length(list)
+  for i=1:length(src)
+    list_current = c_list ≤ nlist ? list[c_list] : zero(Int)
+    if i != list_current
+      c += 1
+      dest[c] = src[i]
+    else
+      c_list += 1
+    end
+  end
+end

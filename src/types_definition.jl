@@ -78,6 +78,7 @@ mutable struct InputConfig{
   Timulti::D
   scaling::Bool
   presolve::Bool
+  warm_start::Bool
   normalize_rtol::Bool # normalize the primal and dual tolerance to the initial starting primal and dual residuals
   kc::I # multiple centrality corrections, -1 = automatic computation
   perturb::Bool

@@ -184,6 +184,7 @@ function scaling!(
   fd_T0::QM_FloatData{T},
   id::QM_IntData,
   sd::ScaleDataLP{T},
+  x0::AbstractVector,
   ϵ::T;
   max_iter::Int = 100,
 ) where {T <: Real}
@@ -203,6 +204,7 @@ function scaling!(
   fd_T0.c .*= d1
   fd_T0.lvar ./= d1
   fd_T0.uvar ./= d1
+  x0 ./= d1
 end
 
 function div_D_Q_D_CSC!(Q_colptr, Q_rowval, Q_nzval, d, n)
@@ -468,6 +470,7 @@ function scaling!(
   fd_T0::QM_FloatData{T},
   id::QM_IntData,
   sd::ScaleDataQP{T},
+  x0::AbstractVector,
   ϵ::T;
   max_iter::Int = 100,
 ) where {T <: Real}
@@ -506,5 +509,6 @@ function scaling!(
   fd_T0.c .*= D1.diag
   fd_T0.lvar ./= D1.diag
   fd_T0.uvar ./= D1.diag
+  x0 ./= D1.diag
   fd_T0.b .*= D2.diag
 end
