@@ -288,66 +288,9 @@ function PreconditionerData(
   )
 end
 
-function factorize_scale_K2!(
-  K::Symmetric,
-  K_fact,
-  D,
-  Deq,
-  diag_Q,
-  diagind_K,
-  regu,
-  s_l,
-  s_u,
-  x_m_lvar,
-  uvar_m_x,
-  ilow,
-  iupp,
-  ncon,
-  nvar,
-  cnts,
-  qp,
-  T,
-  T0,
-)
-  if regu.regul == :dynamic
-    update_K_dynamic!(K, K_fact.LDL, regu, diagind_K, cnts, T, qp)
-    @timeit_debug to "factorize" generic_factorize!(K, K_fact)
-  elseif regu.regul == :classic
-    @timeit_debug to "factorize" generic_factorize!(K, K_fact)
-    while !factorized(K_fact)
-      out = update_regu_trycatch!(regu, cnts, T, T0)
-      out == 1 && return out
-      cnts.c_catch += 1
-      cnts.c_catch >= 4 && return 1
-      update_K!(
-        K,
-        D,
-        regu,
-        s_l,
-        s_u,
-        x_m_lvar,
-        uvar_m_x,
-        ilow,
-        iupp,
-        diag_Q,
-        diagind_K,
-        nvar,
-        ncon,
-        T,
-      )
-      @timeit_debug to "factorize" generic_factorize!(K, K_fact)
-    end
-
-  else # no Regularization
-    @timeit_debug to "factorize" generic_factorize!(K, K_fact)
-  end
-
-  return 0 # factorization succeeded
-end
-
 function update_preconditioner!(
   pdat::LDLData{T},
-  pad::PreallocatedData{T},
+  pad::PreallocatedDataK2Krylov{T},
   itd::IterData{T},
   pt::Point{T},
   id::QM_IntData,
@@ -358,11 +301,67 @@ function update_preconditioner!(
   pad.pdat.regu.ρ, pad.pdat.regu.δ =
     max(pad.regu.ρ, sqrt(eps(Tlow))), max(pad.regu.ρ, sqrt(eps(Tlow)))
 
-  out = factorize_scale_K2!(
+  out = factorize_K2!(
     pad.pdat.K,
     pad.pdat.K_fact,
     pad.D,
-    pad.mt.Deq,
+    pad.mt.diag_Q,
+    pad.mt.diagind_K,
+    pad.pdat.regu,
+    pt.s_l,
+    pt.s_u,
+    itd.x_m_lvar,
+    itd.uvar_m_x,
+    id.ilow,
+    id.iupp,
+    id.ncon,
+    id.nvar,
+    cnts,
+    itd.qp,
+    Tlow,
+    Tlow,
+  ) # update D and factorize K
+
+  if out == 1
+    pad.pdat.fact_fail = true
+    return out
+  end
+  if pad.pdat.warm_start
+    if T == Tlow
+      ldiv!(pad.KS.x, pad.pdat.K_fact, pad.rhs)
+    else
+      ldiv_stor!(pad.KS.x, pad.pdat.K_fact, pad.rhs, pad.pdat.tmp_res, pad.pdat.tmp_v)
+    end
+    warm_start!(pad.KS, pad.KS.x)
+  end
+  if !(
+    typeof(pad.KS) <: GmresSolver ||
+    typeof(pad.KS) <: DqgmresSolver ||
+    typeof(pad.KS) <: GmresIRSolver ||
+    typeof(pad.KS) <: IRSolver
+  )
+    abs_diagonal!(pad.pdat.K_fact)
+  end
+end
+
+function update_preconditioner!(
+  pdat::LDLData{T},
+  pad::PreallocatedDataK2_5Krylov{T},
+  itd::IterData{T},
+  pt::Point{T},
+  id::QM_IntData,
+  fd::Abstract_QM_FloatData{T},
+  cnts::Counters,
+) where {T <: Real}
+  Tlow = lowtype(pad.pdat)
+  pad.pdat.regu.ρ, pad.pdat.regu.δ =
+    max(pad.regu.ρ, sqrt(eps(Tlow))), max(pad.regu.ρ, sqrt(eps(Tlow)))
+
+  out = factorize_K2_5!(
+    pad.pdat.K,
+    pad.pdat.K_fact,
+    pad.D,
+    pad.sqrtX1X2,
     pad.mt.diag_Q,
     pad.mt.diagind_K,
     pad.pdat.regu,

@@ -24,6 +24,7 @@ mutable struct K2_5KrylovParams{T, PT} <: AugmentedKrylovParams{T, PT}
   kmethod::Symbol
   preconditioner::PT
   rhs_scale::Bool
+  form_mat::Bool
   atol0::T
   rtol0::T
   atol_min::T
@@ -41,22 +42,35 @@ function K2_5KrylovParams{T}(;
   kmethod::Symbol = :minres,
   preconditioner::AbstractPreconditioner = Identity(),
   rhs_scale::Bool = true,
-  atol0::T = 1.0e-4,
-  rtol0::T = 1.0e-4,
-  atol_min::T = 1.0e-10,
-  rtol_min::T = 1.0e-10,
-  ρ0::T = sqrt(eps()) * 1e5,
-  δ0::T = sqrt(eps()) * 1e5,
-  ρ_min::T = 1e2 * sqrt(eps()),
-  δ_min::T = 1e3 * sqrt(eps()),
+  form_mat::Bool= false,
+  atol0::T = T(1.0e-4),
+  rtol0::T = T(1.0e-4),
+  atol_min::T = T(1.0e-10),
+  rtol_min::T = T(1.0e-10),
+  ρ0::T = T(sqrt(eps()) * 1e5),
+  δ0::T = T(sqrt(eps()) * 1e5),
+  ρ_min::T = T(1e2 * sqrt(eps())),
+  δ_min::T = T(1e3 * sqrt(eps())),
   itmax::Int = 0,
   mem::Int = 20,
 ) where {T <: Real}
+  if typeof(preconditioner) <: LDL
+    if !form_mat
+      form_mat = true
+      @info "changed form_mat to true to use this preconditioner"
+    end
+    uplo_fact = get_uplo(preconditioner.fact_alg)
+    if uplo != uplo_fact
+      uplo = uplo_fact
+      @info "changed uplo to :$uplo_fact to use this preconditioner"
+    end
+  end
   return K2_5KrylovParams(
     uplo,
     kmethod,
     preconditioner,
     rhs_scale,
+    form_mat,
     atol0,
     rtol0,
     atol_min,
@@ -75,7 +89,8 @@ K2_5KrylovParams(; kwargs...) = K2_5KrylovParams{Float64}(; kwargs...)
 mutable struct PreallocatedDataK2_5Krylov{
   T <: Real,
   S,
-  L <: LinearOperator,
+  M <: Union{LinearOperator{T}, AbstractMatrix{T}},
+  MT <: Union{MatrixTools{T}, Int},
   Pr <: PreconditionerData,
   Ksol <: KrylovSolver,
 } <: PreallocatedDataAugmentedKrylov{T, S}
@@ -88,7 +103,9 @@ mutable struct PreallocatedDataK2_5Krylov{
   rhs_scale::Bool
   regu::Regularization{T}
   δv::Vector{T}
-  K::L # augmented matrix          
+  K::M # augmented matrix
+  K_scaled::Bool # only useful with form_mat = true
+  mt::MT      
   KS::Ksol
   kiter::Int
   atol::T
@@ -156,21 +173,29 @@ function PreallocatedData(
   tmp1 = similar(D)
   tmp2 = similar(D)
   δv = [regu.δ] # put it in a Vector so that we can modify it without modifying opK2prod!
-  K = LinearOperator(
-    T,
-    id.nvar + id.ncon,
-    id.nvar + id.ncon,
-    true,
-    true,
-    (res, v, α, β) ->
-      opK2_5prod!(res, id.nvar, fd.Q, D, fd.A, sqrtX1X2, tmp1, tmp2, δv, v, α, β, fd.uplo),
-  )
+  if sp.form_mat
+    diag_Q = get_diag_Q(fd.Q)
+    K = create_K2(id, D, fd.Q.data, fd.A, diag_Q, regu, fd.uplo)
+    diagind_K = get_diagind_K(K, sp.uplo)
+    Deq = Diagonal(Vector{T}(undef, 0))
+    C_eq = Diagonal(Vector{T}(undef, 0))
+    mt = MatrixTools(diag_Q, diagind_K, Deq, C_eq)
+  else
+    K = LinearOperator(
+      T,
+      id.nvar + id.ncon,
+      id.nvar + id.ncon,
+      true,
+      true,
+      (res, v, α, β) ->
+        opK2_5prod!(res, id.nvar, fd.Q, D, fd.A, sqrtX1X2, tmp1, tmp2, δv, v, α, β, fd.uplo),
+    )
+    mt = 0
+  end
 
   rhs = similar(fd.c, id.nvar + id.ncon)
-
-  KS = init_Ksolver(K, rhs, sp)
-
-  pdat = PreconditionerData(sp, id, fd, regu, D, K)
+  KS = @timeit_debug to "krylov solver setup" init_Ksolver(K, rhs, sp)
+  pdat = @timeit_debug to "preconditioner setup" PreconditionerData(sp, id, fd, regu, D, K)
 
   return PreallocatedDataK2_5Krylov(
     pdat,
@@ -183,6 +208,8 @@ function PreallocatedData(
     regu,
     δv,
     K, #K
+    false,
+    mt,
     KS, #K_fact
     0,
     T(sp.atol0),
@@ -213,8 +240,19 @@ function solver!(
   if pad.rhs_scale
     rhsNorm = kscale!(pad.rhs)
   end
-  (step !== :cc) && (pad.kiter = 0)
-  ksolve!(
+  if step !== :cc
+    @timeit_debug to "preconditioner update" update_preconditioner!(
+      pad.pdat,
+      pad,
+      itd,
+      pt,
+      id,
+      fd,
+      cnts,
+    )
+    pad.kiter = 0
+  end
+  @timeit_debug to "Krylov solve" ksolve!(
     pad.KS,
     pad.K,
     pad.rhs,
@@ -232,6 +270,17 @@ function solver!(
   pad.KS.x[1:(id.nvar)] .*= pad.sqrtX1X2
 
   dd .= pad.KS.x
+
+   # update regularization and restore K. Cannot be done in update_pad since x-lvar and uvar-x will change.
+  if typeof(pad.K) <: Symmetric{T, <:Union{SparseMatrixCSC{T}, SparseMatrixCOO{T}}} &&
+    (step == :cc || step == :IPF) && pad.K_scaled
+    # restore J for next iteration
+    # pad.D .= one(T)
+    # pad.D[id.ilow] ./= sqrt.(itd.x_m_lvar)
+    # pad.D[id.iupp] ./= sqrt.(itd.uvar_m_x)
+    lrdiv_K!(pad.K, pad.sqrtX1X2, id.nvar)
+    pad.K_scaled = false
+  end
 
   return 0
 end
@@ -262,17 +311,74 @@ function update_pad!(
   pad.sqrtX1X2 .= one(T)
   pad.sqrtX1X2[id.ilow] .*= sqrt.(itd.x_m_lvar)
   pad.sqrtX1X2[id.iupp] .*= sqrt.(itd.uvar_m_x)
-  pad.D .= zero(T)
-  pad.D[id.ilow] .-= pt.s_l
-  pad.D[id.iupp] .*= itd.uvar_m_x
-  pad.tmp1 .= zero(T)
-  pad.tmp1[id.iupp] .-= pt.s_u
-  pad.tmp1[id.ilow] .*= itd.x_m_lvar
-  pad.D .+= pad.tmp1 .- pad.regu.ρ
+  pad.D .= -pad.regu.ρ
+  pad.D[id.ilow] .-= pt.s_l ./ itd.x_m_lvar
+  pad.D[id.iupp] .-= pt.s_u ./ itd.uvar_m_x
 
   pad.δv[1] = pad.regu.δ
 
-  update_preconditioner!(pad.pdat, pad, itd, pt, id, fd, cnts)
+  if typeof(pad.K) <: Symmetric{T, <:Union{SparseMatrixCSC{T}, SparseMatrixCOO{T}}}
+    pad.D[pad.mt.diag_Q.nzind] .-= pad.mt.diag_Q.nzval
+    update_diag_K11!(pad.K, pad.D, pad.mt.diagind_K, id.nvar)
+    update_diag_K22!(pad.K, pad.regu.δ, pad.mt.diagind_K, id.nvar, id.ncon)
+    lrmultilply_K!(pad.K, pad.sqrtX1X2, id.nvar)
+    pad.K_scaled = true
+  else
+    pad.D .*= pad.sqrtX1X2 .^2
+  end
 
   return 0
 end
+
+function convertpad(
+  ::Type{<:PreallocatedData{T}},
+  pad::PreallocatedDataK2_5Krylov{T_old},
+  sp_old::K2_5KrylovParams,
+  sp_new::K2_5KrylovParams,
+  id::QM_IntData,
+  fd::Abstract_QM_FloatData,
+  T0::DataType,
+) where {T <: Real, T_old <: Real}
+  D = convert(Array{T}, pad.D)
+  sqrtX1X2 = convert(Array{T}, pad.sqrtX1X2)
+  tmp1 = convert(Array{T}, pad.tmp1)
+  tmp2 = convert(Array{T}, pad.tmp2)
+  regu = convert(Regularization{T}, pad.regu)
+  regu.ρ_min = T(sp_new.ρ_min)
+  regu.δ_min = T(sp_new.δ_min)
+  K = Symmetric(convert(eval(typeof(pad.K.data).name.name){T, Int}, pad.K.data), sp_new.uplo)
+  rhs = similar(D, id.nvar + id.ncon)
+  δv = [regu.δ]
+  mt = convert(MatrixTools{T}, pad.mt)
+  mt.Deq.diag .= one(T)
+  regu_precond = convert(Regularization{sp_new.preconditioner.T}, pad.regu)
+  regu_precond.regul = :dynamic
+  K_fact =
+    (sp_new.preconditioner.T != sp_old.preconditioner.T) ?
+    convertldl(sp_new.preconditioner.T, pad.pdat.K_fact) : pad.pdat.K_fact
+  pdat = PreconditionerData(sp_new, K_fact, id.nvar, id.ncon, regu_precond, K)
+  KS = init_Ksolver(K, rhs, sp_new)
+
+  return PreallocatedDataK2_5Krylov(
+    pdat,
+    D,
+    sqrtX1X2,
+    tmp1,
+    tmp2,
+    rhs,
+    sp_new.rhs_scale,
+    regu,
+    δv,
+    K, #K
+    pad.K_scaled,
+    mt,
+    KS,
+    0,
+    T(sp_new.atol0),
+    T(sp_new.rtol0),
+    T(sp_new.atol_min),
+    T(sp_new.rtol_min),
+    sp_new.itmax,
+  )
+end
+

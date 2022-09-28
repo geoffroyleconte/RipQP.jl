@@ -507,11 +507,12 @@ function factorize_K2!(
   T,
   T0,
 )
-  if (regu.regul == :dynamic || regu.regul == :hybrid) && K_fact isa LDLFactorizationData
+  # if (regu.regul == :dynamic || regu.regul == :hybrid) && K_fact isa LDLFactorizationData
+  if regu.regul == :dynamic && K_fact isa LDLFactorizationData
     update_K_dynamic!(K, K_fact.LDL, regu, diagind_K, cnts, T, qp)
-    generic_factorize!(K, K_fact)
+    @timeit_debug to "factorize" generic_factorize!(K, K_fact)
   elseif regu.regul == :classic
-    generic_factorize!(K, K_fact)
+    @timeit_debug to "factorize" generic_factorize!(K, K_fact)
     while !factorized(K_fact)
       out = update_regu_trycatch!(regu, cnts, T, T0)
       out == 1 && return out
@@ -533,11 +534,11 @@ function factorize_K2!(
         ncon,
         T,
       )
-      generic_factorize!(K, K_fact)
+      @timeit_debug to "factorize" generic_factorize!(K, K_fact)
     end
 
   else # no Regularization
-    generic_factorize!(K, K_fact)
+    @timeit_debug to "factorize" generic_factorize!(K, K_fact)
   end
 
   return 0 # factorization succeeded

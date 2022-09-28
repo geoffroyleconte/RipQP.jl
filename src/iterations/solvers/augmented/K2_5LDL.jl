@@ -51,6 +51,7 @@ K2_5LDLParams(; kwargs...) = K2_5LDLParams{Float64}(; kwargs...)
 mutable struct PreallocatedDataK2_5LDL{T <: Real, S, M, F <: FactorizationData{T}} <:
                PreallocatedDataAugmentedLDL{T, S}
   D::S # temporary top-left diagonal
+  sqrtX1X2::S
   regu::Regularization{T}
   diag_Q::SparseVector{T, Int} # Q diagonal
   K::Symmetric{T, M} # augmented matrix 
@@ -94,6 +95,7 @@ function PreallocatedData(
 
   return PreallocatedDataK2_5LDL(
     D,
+    similar(D),
     regu,
     diag_Q, #diag_Q
     K, #K
@@ -119,9 +121,9 @@ function solver!(
   step::Symbol,
 ) where {T <: Real}
   if pad.K_scaled
-    dd[1:(id.nvar)] .*= pad.D
+    dd[1:(id.nvar)] .*= pad.sqrtX1X2
     ldiv!(pad.K_fact, dd)
-    dd[1:(id.nvar)] .*= pad.D
+    dd[1:(id.nvar)] .*= pad.sqrtX1X2
   else
     ldiv!(pad.K_fact, dd)
   end
@@ -134,10 +136,7 @@ function solver!(
 
     # restore J for next iteration
     if pad.K_scaled
-      pad.D .= one(T)
-      pad.D[id.ilow] ./= sqrt.(itd.x_m_lvar)
-      pad.D[id.iupp] ./= sqrt.(itd.uvar_m_x)
-      lrmultilply_K!(pad.K, pad.D, id.nvar)
+      lrdiv_K!(pad.K, pad.sqrtX1X2, id.nvar)
       pad.K_scaled = false
     end
     out == 1 && return out
@@ -173,10 +172,15 @@ function update_pad!(
     id.ncon,
     T,
   )
+  pad.sqrtX1X2 .= one(T)
+  pad.sqrtX1X2[id.ilow] .*= sqrt.(itd.x_m_lvar)
+  pad.sqrtX1X2[id.iupp] .*= sqrt.(itd.uvar_m_x)
+  lrmultilply_K!(pad.K, pad.sqrtX1X2, id.nvar)
   out = factorize_K2_5!(
     pad.K,
     pad.K_fact,
     pad.D,
+    pad.sqrtX1X2,
     pad.diag_Q,
     pad.diagind_K,
     pad.regu,
@@ -224,16 +228,29 @@ function lrmultilply_K!(K::Symmetric{T, SparseMatrixCOO{T, Int}}, v::Vector{T}, 
   rmul!(K.data, v)
 end
 
-function X1X2_to_D!(
-  D::AbstractVector{T},
-  x_m_lvar::AbstractVector{T},
-  uvar_m_x::AbstractVector{T},
-  ilow,
-  iupp,
-) where {T}
-  D .= one(T)
-  D[ilow] .*= sqrt.(x_m_lvar)
-  D[iupp] .*= sqrt.(uvar_m_x)
+function lrdiv_K_CSC!(K_colptr, K_rowval, K_nzval::Vector{T}, v::Vector{T}, nvar) where {T}
+  @inbounds @simd for i = 1:nvar
+    for idx_row = K_colptr[i]:(K_colptr[i + 1] - 1)
+      K_nzval[idx_row] /= v[i] * v[K_rowval[idx_row]]
+    end
+  end
+
+  n = length(K_colptr)
+  @inbounds @simd for i = (nvar + 1):(n - 1)
+    for idx_row = K_colptr[i]:(K_colptr[i + 1] - 1)
+      if K_rowval[idx_row] <= nvar
+        K_nzval[idx_row] /= v[K_rowval[idx_row]] # multiply row i by v[i]
+      end
+    end
+  end
+end
+
+lrdiv_K!(K::Symmetric{T, SparseMatrixCSC{T, Int}}, v::Vector{T}, nvar) where {T} =
+  lrdiv_K_CSC!(K.data.colptr, K.data.rowval, K.data.nzval, v, nvar)
+
+function lrdiv_K!(K::Symmetric{T, SparseMatrixCOO{T, Int}}, v::Vector{T}, nvar) where {T}
+  ldiv!(v, K.data)
+  rdiv!(K.data, v)
 end
 
 function update_Dsquare_diag_K11!(K::SparseMatrixCSC, D, diagind_K, nvar)
@@ -249,6 +266,7 @@ function factorize_K2_5!(
   K::Symmetric,
   K_fact,
   D,
+  sqrtX1X2,
   diag_Q,
   diagind_K,
   regu,
@@ -265,25 +283,22 @@ function factorize_K2_5!(
   T,
   T0,
 )
-  X1X2_to_D!(D, x_m_lvar, uvar_m_x, ilow, iupp)
-  lrmultilply_K!(K, D, nvar)
-  if regu.regul == :dynamic
+  if regu.regul == :dynamic || regu.regul == :hybrid
     # Amax = @views norm(K.nzval[diagind_K], Inf)
-    Amax = minimum(D)
-    if Amax < sqrt(eps(T)) && cnts.c_pdd < 8
-      if T == Float32
-        # restore K for next iteration
-        X1X2_to_D!(D, x_m_lvar, uvar_m_x, ilow, iupp)
-        lrmultilply_K!(K, D, nvar)
-        return one(Int) # update to Float64
-      elseif qp || cnts.c_pdd < 4
-        cnts.c_pdd += 1
-        regu.δ /= 10
-        K_fact.LDL.r2 = max(sqrt(Amax), regu.δ)
-        # regu.ρ /= 10
-      end
-    end
-    K_fact.LDL.tol = min(Amax, T(eps(T)))
+    # Amax = abs(minimum(D))
+    # if Amax < sqrt(eps(T)) && cnts.c_pdd < 8
+    #   if T == Float32
+    #     # restore K for next iteration
+    #     lrdiv_K!(K, sqrtX1X2, nvar)
+    #     return one(Int) # update to Float64
+    #   elseif qp || cnts.c_pdd < 4
+    #     cnts.c_pdd += 1
+    #     regu.δ /= 10
+    #     K_fact.LDL.r2 = max(sqrt(Amax), regu.δ)
+    #     # regu.ρ /= 10
+    #   end
+    # end
+    # K_fact.LDL.tol = min(Amax, T(eps(T)))
     generic_factorize!(K, K_fact)
 
   elseif regu.regul == :classic
@@ -292,8 +307,7 @@ function factorize_K2_5!(
       out = update_regu_trycatch!(regu, cnts, T, T0)
       if out == 1
         # restore J for next iteration
-        X1X2_to_D!(D, x_m_lvar, uvar_m_x, ilow, iupp)
-        lrmultilply_K!(K, D, nvar)
+        lrdiv_K!(K, sqrtX1X2, nvar)
         return out
       end
       cnts.c_catch += 1
@@ -315,8 +329,7 @@ function factorize_K2_5!(
         T,
       )
 
-      X1X2_to_D!(D, x_m_lvar, uvar_m_x, ilow, iupp)
-      K.data.nzval[view(diagind_K, 1:nvar)] .*= D .^ 2
+      K.data.nzval[view(diagind_K, 1:nvar)] .*= sqrtX1X2 .^ 2
       update_diag_K22!(K, regu.δ, diagind_K, nvar, ncon)
       generic_factorize!(K, K_fact)
     end
@@ -340,6 +353,7 @@ function convertpad(
 ) where {T <: Real, T_old <: Real}
   pad = PreallocatedDataK2_5LDL(
     convert(Array{T}, pad.D),
+    convert(Array{T}, pad.sqrtX1X2),
     convert(Regularization{T}, pad.regu),
     convert(SparseVector{T, Int}, pad.diag_Q),
     Symmetric(convert(SparseMatrixCSC{T, Int}, pad.K.data), Symbol(pad.K.uplo)),
