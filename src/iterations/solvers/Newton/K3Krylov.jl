@@ -140,6 +140,11 @@ function (rd::K3Residuals)(solver::KrylovSolver{T}, σ::T, μ::T, rbNorm::T, rcN
   ϵ_uNorm = @views norm(rd.ϵK3[(rd.nvar + rd.ncon + rd.nlow + 1): (rd.nvar + rd.ncon + rd.nlow + rd.nupp)], Inf)
   ξ_lNorm = @views norm(rd.rhs[(rd.nvar + rd.ncon + 1): (rd.nvar + rd.ncon + rd.nlow)], Inf)
   ξ_uNorm = @views norm(rd.rhs[(rd.nvar + rd.ncon + rd.nlow + 1): (rd.nvar + rd.ncon + rd.nlow + rd.nupp)], Inf)
+  println("-------------------------------------------------------------")
+  print("||ϵ_d|| = $(ϵ_dNorm)")
+  print("        ||ϵ_p|| = $(ϵ_pNorm)")
+  print("        ||ϵ_l|| = $(ϵ_lNorm)")
+  println("        ||ϵ_u|| = $(ϵ_uNorm)")
   return (ϵ_dNorm ≤ min(rd.atol, rd.rtol * rd.rcNorm0 * μ / rd.μ0) &&
           ϵ_pNorm ≤ min(rd.atol, rd.rtol * rd.rbNorm0 * μ / rd.μ0) &&
           ϵ_lNorm ≤ min(rd.atol, rd.rtol * ξ_lNorm * μ / rd.μ0) &&

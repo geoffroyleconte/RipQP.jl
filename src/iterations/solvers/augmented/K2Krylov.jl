@@ -192,13 +192,18 @@ function (rd::K2ToK3Residuals)(solver::KrylovSolver{T}, σ::T, μ::T, rbNorm::T,
   rd.ϵ_p .= @views rd.ϵK2[(rd.nvar+1): end]
   @. rd.ξ_l = -rd.s_l * rd.x_m_lvar + σ * μ
   @. rd.ξ_u = -rd.s_u * rd.uvar_m_x + σ * μ
-  @. rd.Δs_l = @views (σ * μ - rd.s_l * solver.x[rd.ilow]) / rd.x_m_lvar - rd.s_l
-  @. rd.Δs_u = @views (σ * μ + rd.s_u * solver.x[rd.iupp]) / rd.uvar_m_x - rd.s_u
-  @. rd.ϵ_l = @views rd.s_l * solver.x[rd.ilow] + rd.x_m_lvar * rd.Δs_l + rd.s_l * rd.x_m_lvar - σ * μ
-  @. rd.ϵ_u = @views -rd.s_u * solver.x[rd.iupp] + rd.uvar_m_x * rd.Δs_u + rd.s_u * rd.uvar_m_x - σ * μ
+  @. rd.Δs_l = @views (rd.ξ_l - rd.s_l * solver.x[rd.ilow]) / rd.x_m_lvar
+  @. rd.Δs_u =  @views (rd.ξ_u + rd.s_u * solver.x[rd.iupp]) / rd.uvar_m_x
+  @. rd.ϵ_l = @views rd.s_l * solver.x[rd.ilow] + rd.x_m_lvar * rd.Δs_l - rd.ξ_l
+  @. rd.ϵ_u = @views -rd.s_u * solver.x[rd.iupp] + rd.uvar_m_x * rd.Δs_u - rd.ξ_u
   rd.ϵ_d .= @views rd.ϵK2[1:rd.nvar]
   @. rd.ϵ_d[rd.ilow] += rd.ϵ_l / rd.x_m_lvar
   @. rd.ϵ_d[rd.iupp] -= rd.ϵ_u / rd.uvar_m_x
+  println("-------------------------------------------------------------")
+  print("||ϵ_d|| = $(norm(rd.ϵ_d, Inf))")
+  print("   ||ϵ_p|| = $(norm(rd.ϵ_p, Inf))")
+  print("  ||ϵ_l|| = $(norm(rd.ϵ_l, Inf))")
+  println("  ||ϵ_u|| = $(norm(rd.ϵ_u, Inf))")
   return (norm(rd.ϵ_d, Inf) ≤ min(rd.atol, rd.rtol * rd.rcNorm0 * μ / rd.μ0) &&
           norm(rd.ϵ_p, Inf) ≤ min(rd.atol, rd.rtol * rd.rbNorm0 * μ / rd.μ0) &&
           norm(rd.ϵ_l, Inf) ≤ min(rd.atol, rd.rtol * norm(rd.ξ_l, Inf) * μ / rd.μ0) &&
