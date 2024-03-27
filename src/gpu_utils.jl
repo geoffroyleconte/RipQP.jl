@@ -10,12 +10,8 @@ function get_mat_QPData(
   sp::K2KrylovGPUParams,
 ) where {T, Ti}
   # A is Aᵀ of QuadraticModel QM
-  fdA = CUDA.CUSPARSE.CuSparseMatrixCSC(
-    sparse(Vector(A.colInd), Vector(A.rowInd), Vector(A.nzVal), nvar, ncon),
-  )
-  fdQ = CUDA.CUSPARSE.CuSparseMatrixCSC(
-    sparse(Vector(H.colInd), Vector(H.rowInd), Vector(H.nzVal), nvar, nvar),
-  )
+  fdA = sparse(A.colInd, A.rowInd, A.nzVal, nvar, ncon; fmt = :csc)
+  fdQ = sparse(H.colInd, H.rowInd, H.nzVal, nvar, nvar; fmt = :csc)
   return fdA, Symmetric(fdQ, sp.uplo)
 end
 
@@ -141,7 +137,7 @@ function compute_α_primal_gpu(v, dir_v, lvar, uvar, store_v)
   return min(α_l, α_u)
 end
 
-@inline function compute_αs_gpu(
+function compute_αs_gpu(
   x::CuVector,
   s_l::CuVector,
   s_u::CuVector,
